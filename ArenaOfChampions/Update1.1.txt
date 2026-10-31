@@ -1,0 +1,46 @@
+Please fix the following 5 bugs in the Grot rigging, M1 hitbox/cooldown, and HUD Stat Drawer UI:
+
+### 1. FIX GROT FLOATING / STRETCHING LIMBS (USE BOUNDING BOX CENTERS)
+- Currently, Grot's Head, Brown leg, and Orange arm float off by 1 stud or stretch into the sky because `GrotRigFactory.lua` uses arbitrary child BaseParts or uncentered Model pivots as the Motor6D reference across poses.
+- **How to fix `GrotRigFactory.lua`:**
+  1. For each of the 6 limbs (`Brown arm`, `Brown leg`, `Head`, `Orange arm`, `Orange leg`, `Torso`), do NOT rely on `PrimaryPart` or `FindFirstChildWhichIsA("BasePart")` because child order and pivot points vary between `Grot_model`, `Grot_walk`, `Grot_sprint`, and `Grot_M1frame1..3`.
+  2. Instead, compute the limb's true geometric center CFrame using `local limbCF, limbSize = limbModel:GetBoundingBox()` (or if it's a single BasePart, `limb.CFrame`).
+  3. When building the rigged Grot character from `Grot_model`, create an invisible, non-collidable, massless proxy Part (`LimbPivot`) for each limb positioned at that limb's exact `GetBoundingBox()` CFrame, weld all voxel sub-parts inside that limb to `LimbPivot` using `WeldConstraint`, and connect `Grot_hitbox` (Part0) to `LimbPivot` (Part1) with a `Motor6D`.
+  4. In `ExtractPose(poseModel)`, calculate each limb's offset relative to `Grot_hitbox` using `rootPart.CFrame:ToObjectSpace(limbBoundingBoxCFrame)`. This guarantees every limb stays 100% locked in place with zero floating or stretching.
+  5. Also check why `Grot_hitbox` / `Grot_model` is facing `+Z` (Back) in Studio: ensure the spawned `HumanoidRootPart` orientation matches the visual front of Grot so Grot doesn't walk backwards or sink into the ground (`HipHeight` properly calibrated so feet touch the floor).
+
+---
+
+### 2. FIX GROT M1 HITBOX SPAWNING BEHIND CHARACTER & HEAVY TANKER FEEL
+- **Bug:** In Shift-Lock or normal combat, Grot's M1 hitbox spawns BEHIND the player instead of in front of them because `Grot_M1interhitbox` / `Grot_hitbox` in Studio was built facing `+Z` instead of `-Z`.
+- **How to fix:**
+  1. Calculate the distance and size from `Grot_M1interhitbox` and `Grot_M1hitbox`, Beat-test the Z offset sign: ensure the active M1 hitbox ALWAYS spawns **in front** of the player's `HumanoidRootPart.CFrame.LookVector` (negative Z in local space: `hrp.CFrame * CFrame.new(offsetX, offsetY, -math.abs(offsetZ))`).
+  2. Make the translucent red debug hitbox clearly visible (`Transparency = 0.6`, `Color3.fromRGB(255, 50, 50)`, `Material = Enum.Material.Neon`) during its `0.20s` active linger window and weld/update it to follow `HumanoidRootPart` so the player can clearly see it hitting in front of them.
+  3. **Heavy Tanker Animation Feel:** Adjust the M1 frame tween timings in `GrotAnimationController.lua` so `Grot_M1frame1` -> `Grot_M1frame2` winds up with weight (`0.25s` total wind-up), and `Grot_M1frame3` slams down heavily right as the hitbox appears (using `Enum.EasingStyle.Back` or `Quart` Out) with a brief, subtle camera bump/shake on impact.
+
+---
+
+### 3. FIX M1 COOLDOWN DELAY (TRUE 2.0s CD & NO STAMINA LOCKOUT)
+- **Bug:** Spamming M1 feels like a 2.5s+ cooldown because the server/client waits for the attack duration to finish or waits for the cyan border animation before allowing the next click, and M1 drains Stamina so low stamina locks out M1.
+- **How to fix:**
+  1. Set `StaminaCost = 0` for `GrotM1` (and `BlockyM1`) in `CombatConfig.lua` so M1 never drains stamina or gets blocked when stamina is low while sprinting.
+  2. Start the `2.0s` cooldown timer **immediately at the moment MB1 is pressed** (both on the server `lastAttackTime` timestamp and the client HUD cooldown sweep), NOT after the `0.45s` wind-up/linger finishes.
+  3. Ensure `IsAttacking` resets cleanly after `0.45s` (right when the linger ends), and ensure the client `CombatController` + HUD cyan ready border sync to the exact `2.0s` mark so holding or spamming MB1 fires immediately at `2.0s`.
+
+---
+
+### 4. FIX STAT VIEWER SHOWING LIVE STAMINA INSTEAD OF MAX STAMINA
+- **Bug:** In `HUDController.lua`, the `Stamina` entry inside the Character Stats panel updates constantly with current running stamina (e.g., `63.8`, `41.4`) instead of showing static `MaxStamina` (`75`).
+- **How to fix:** Bind the `Stamina` stat row in the stat panel strictly to the `MaxStamina` (or `Stamina` max config stat = `75` for Grot, `100` for Unmorphed) just like `HP` displays `MaxHealth` (`250`), formatted as a clean integer without decimals.
+
+---
+
+### 5. REDESIGN "^" BUTTON INTO A SLIDING DRAWER HANDLE BAR
+- **How it should look and animate (referring to UI layout):**
+  1. Instead of a small square `^` button in the corner, make the toggle button a **wide, sleek rounded horizontal bar** (`UDim2.new(1, 0, 0, 22)`) that spans the full width directly on top of the main HUD frame, with a centered `"^"` arrow label.
+  2. **Closed State:** The wide bar rests snugly right above the HP/Stamina HUD container.
+  3. **When Clicked (Open State):**
+     - Smoothly tween the wide handle bar **upward** (`TweenService`, `0.25s`, `Quart` Out) so it sits on top of the opened stats panel, and flip its text to `"v"`.
+     - Simultaneously expand/slide the `CHARACTER STATS` panel open in the space between the lifted handle bar and the main HUD container below it.
+  4. **When Clicked Again (Close State):**
+     - Smoothly collapse the `CHARACTER STATS` panel and slide the wide handle bar **back down** to its original resting position directly on top of the HP/Stamina HUD container, flipping the text back to `"^"`.
