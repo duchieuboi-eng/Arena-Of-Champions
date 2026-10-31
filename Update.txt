@@ -1,0 +1,83 @@
+Please fix the current critical bugs and implement the new stat system, testing dummy spawner, and the "Grot" character using the models currently in Workspace.
+
+### 1. CRITICAL BUG FIXES
+1. **Unmorphed Default State (No M1 Before Morphing):**
+   - When a player first joins or respawns, they are in an `"Unmorphed"` state.
+   - Disable M1 / combat abilities completely while `"Unmorphed"`. Players can only use M1 after stepping onto a morph stand to morph into a character (like Blocky or Grot).
+2. **Camera Bug After Morph & Respawn Fix:**
+   - When morphing swaps `player.Character`, fire an event or handle `player.CharacterAdded` on the client to immediately set `workspace.CurrentCamera.CameraSubject = newCharacter:WaitForChild("Humanoid")` and `workspace.CurrentCamera.CameraType = Enum.CameraType.Custom`.
+   - Connect `Humanoid.Died` on all characters (default and morphed) to respawn the player (`player:LoadCharacter()`) after 3 seconds so resetting doesn't permanently softlock the player.
+3. **HP Regen vs. Stamina Recovery Bug:**
+   - Fix the bug where HP regenerates at the speed of Stamina after morphing.
+   - Ensure only ONE regen loop runs per character (clean up/disconnect old loops on morph or death).
+   - Separate the math strictly: HP regenerates by `Regen` per second (`math.min(MaxHP, HP + Regen * dt)`), and Stamina regenerates by `Recovery` per second (`math.min(MaxStamina, Stamina + Recovery * dt)`).
+4. **Prevent Self-Hit on M1:**
+   - In all hitbox detection (`workspace:GetPartsInPart` or spatial queries), always add the attacker's character model to `OverlapParams.FilterDescendantsInstances` so attacking never damages yourself.
+
+---
+
+### 2. NEW STAT SYSTEM & "^" DROPDOWN UI
+1. **Character Stat Schema:**
+   Every morphed character uses these 11 stats:
+   - `HP`: Max health
+   - `Regen`: HP regenerated per second
+   - `Stamina`: Max stamina
+   - `Recovery`: Stamina regenerated per second
+   - `Walk`: Base walk speed
+   - `Sprint`: Sprint speed when holding LeftShift
+   - `Physical`: Physical attack power
+   - `Magic`: Magic attack power
+   - `DEF`: Flat damage barrier that reduces ALL incoming Physical/Magic damage by `DEF` (`FinalDamage = math.max(0, RawDamage - TargetDEF)`). Only `TRUE` damage bypasses `DEF`.
+   - `Crit`: Critical hit chance percentage (0 to 100)
+   - `CritDMG`: Critical damage multiplier percentage (`100` = `1.0x` base multiplier, calculated as `CritDMG / 100`).
+
+2. **UI Stat Panel (`^` Button):**
+   - Add a `"^"` toggle button directly above the HP/Stamina bar HUD.
+   - Clicking `"^"` toggles open/closed a clean panel listing all 11 current stats (`HP`, `Regen`, `Stamina`, `Recovery`, `Walk`, `Sprint`, `Physical`, `Magic`, `DEF`, `Crit`, `Crit DMG`) and updates dynamically when the player morphs.
+
+---
+
+### 3. PRESS "B" TO SPAWN NOOB TESTING DUMMY
+- Bind the `B` key on the client (`UserInputService`) to fire a RemoteEvent that spawns a "Noob" testing dummy 6 studs in front of the player facing them.
+- Give the Noob dummy a `Humanoid` (`MaxHealth = 100`, `Health = 100`), a visible overhead HP bar, and `DEF = 0` so combat damage and healing can be tested easily.
+
+---
+
+### 4. NEW CHARACTER: GROT (MODELS, ANIMATIONS & M1)
+1. **Grot Stats:**
+   - `HP`: 250
+   - `Regen`: 2.5
+   - `Stamina`: 75
+   - `Recovery`: 2.5
+   - `Walk`: 15
+   - `Sprint`: 20
+   - `Physical`: 25
+   - `Magic`: 0
+   - `DEF`: 15
+   - `Crit`: 0
+   - `CritDMG`: 100
+
+2. **Workspace Model Setup & Rigging:**
+   - Look in `Workspace` for the Grot models and hitbox references: `Grot_model`, `Grot_walk`, `Grot_sprint`, `Grot_M1frame1`, `Grot_M1frame2`, `Grot_M1frame3`, `Grot_M1hitbox`, and `Grot_M1interhitbox`.
+   - On server startup, move or clone these reference models into a folder in `ReplicatedStorage` (so they don't sit on the map floor during gameplay) and create a **Grot Morph Stand** next to the Blocky Morph Stand so the player can step on it to morph into Grot.
+   - Inside each Grot model, the limbs are `Brown arm`, `Brown leg`, `Head`, `Orange arm`, `Orange leg`, `Torso`, and the green bounding box is `Grot_hitbox`.
+   - Use `Grot_hitbox` as Grot's main root/hurtbox part (`HumanoidRootPart` equivalent) for player collisions and combat hit detection. Set all small voxel sub-parts inside the limbs to `Anchored = false`, `CanCollide = false`, and `Massless = true`, welded cleanly to each limb's pivot/PrimaryPart, and attach each limb to `Grot_hitbox` via `Motor6D` or `Weld` so they can be animated via CFrame offsets.
+
+3. **Pose-Based Movement Animations (`Grot_model`, `Grot_walk`, `Grot_sprint`):**
+   - Extract the relative CFrame offsets of the 6 body parts (`Brown arm`, `Brown leg`, `Head`, `Orange arm`, `Orange leg`, `Torso`) relative to `Grot_hitbox` from each reference model:
+     - **Idle:** Smoothly tween limbs back to `Grot_model` pose when standing still.
+     - **Walking:** When moving at base `Walk` speed (15), smoothly transition and hold the `Grot_walk` pose state.
+     - **Sprinting (Hold LeftShift):** Increase speed to `Sprint` (20) and continuously loop a smooth tween back and forth between `Grot_walk` -> `Grot_sprint` -> `Grot_walk` while sprinting.
+
+4. **Grot M1 Ability ("Sprout grows"):**
+   - **Description:** Grot charges a heavy blow that deals damage and heals himself if it hits an enemy.
+   - **Cooldown:** `2.0s`
+   - **Animation:** When pressing MB1, smoothly tween Grot's limb joints sequentially through `Grot_M1frame1` -> `Grot_M1frame2` -> `Grot_M1frame3`, then return to the current idle/movement pose.
+   - **Hitbox Timing & Placement:**
+     - **Wind-up:** `0.25s` delay after pressing MB1 before the hitbox appears.
+     - **Linger:** The hitbox stays active for `0.2s` (and follows Grot's root part while lingering).
+     - **Offset Calculation:** Read the relative offset between `Grot_M1interhitbox` (the blue center reference cube) and `Grot_M1hitbox` (the red attack volume). Spawn the active hitbox aligned to Grot's `Grot_hitbox` using that exact relative CFrame offset and size (visible as a translucent red box for debugging).
+   - **Damage & Heal Math:**
+     - Can hit multiple targets during the `0.2s` linger window (each unique enemy can only be hit once per M1 cast).
+     - Base Physical Damage formula: `{Physical} - {Walk}` using Grot's base `Walk` stat (`25 - 15 = 10` Physical Damage), then reduced by the target's flat `DEF`.
+     - **Self-Heal:** If the M1 hits **at least one** valid enemy during the swing, heal Grot **once** by `{Regen}` (`+2.5 HP`, capped at MaxHP `250`). Do not multiply the heal if multiple enemies are hit.

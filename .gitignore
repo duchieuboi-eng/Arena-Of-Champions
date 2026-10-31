@@ -1,0 +1,14 @@
+# Rojo executable & archives
+rojo.exe
+*.zip
+
+# Roblox Studio builds / place files
+*.rbxl
+*.rbxlx
+
+# OS & Editor files
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
