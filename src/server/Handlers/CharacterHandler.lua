@@ -131,17 +131,24 @@ function CharacterHandler.SetSprintState(player: Player, isSprinting: boolean)
 	local walkSpeed = character:GetAttribute("Walk") or 16
 	local sprintSpeed = character:GetAttribute("Sprint") or 24
 	local stamina = character:GetAttribute("Stamina") or 0
+	local wasSprinting = character:GetAttribute("IsSprinting") or false
 
 	if isSprinting and stamina > 5 then
 		character:SetAttribute("IsSprinting", true)
+		character:SetAttribute("LastSprintStopTime", nil) -- reset delay timer when sprinting resumes
 		humanoid.WalkSpeed = sprintSpeed
 	else
 		character:SetAttribute("IsSprinting", false)
+		if wasSprinting then
+			character:SetAttribute("LastSprintStopTime", os.clock()) -- start 1.0s recovery delay timer
+		end
 		humanoid.WalkSpeed = walkSpeed
 	end
 end
 
 function CharacterHandler.OnUpdate(deltaTime: number)
+	local now = os.clock()
+
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
 		if not character then continue end
@@ -160,26 +167,36 @@ function CharacterHandler.OnUpdate(deltaTime: number)
 		local isSprinting = character:GetAttribute("IsSprinting") or false
 		local walkSpeed = character:GetAttribute("Walk") or 16
 
-		-- 1. Strictly Separated Health Regeneration: HP + (Regen * dt)
-		if currentHealth < maxHealth then
-			local newHealth = math.min(maxHealth, currentHealth + (regen * deltaTime))
-			humanoid.Health = newHealth
-			character:SetAttribute("Health", newHealth)
+		-- 1. Global Passive HP Regen (Every 2.5s Tick)
+		local lastHpTick = character:GetAttribute("LastHpRegenTick")
+		if not lastHpTick then
+			character:SetAttribute("LastHpRegenTick", now)
+		elseif (now - lastHpTick) >= 2.5 then
+			character:SetAttribute("LastHpRegenTick", now)
+			if currentHealth < maxHealth then
+				local newHealth = math.min(maxHealth, currentHealth + regen)
+				humanoid.Health = newHealth
+				character:SetAttribute("Health", newHealth)
+			end
 		end
 
-		-- 2. Strictly Separated Stamina Recovery & Sprint Drain: Stamina + (Recovery * dt)
+		-- 2. Stamina Sprint Drain & Recovery (with 1.0s delay after stopping sprint)
 		if isSprinting then
 			local newStamina = math.max(0, currentStamina - (drainRate * deltaTime))
 			character:SetAttribute("Stamina", newStamina)
 
 			if newStamina <= 0 then
 				character:SetAttribute("IsSprinting", false)
+				character:SetAttribute("LastSprintStopTime", now)
 				humanoid.WalkSpeed = walkSpeed
 			end
 		else
-			if currentStamina < maxStamina then
-				local newStamina = math.min(maxStamina, currentStamina + (recovery * deltaTime))
-				character:SetAttribute("Stamina", newStamina)
+			local lastSprintStop = character:GetAttribute("LastSprintStopTime") or 0
+			if (now - lastSprintStop) >= 1.0 then
+				if currentStamina < maxStamina then
+					local newStamina = math.min(maxStamina, currentStamina + (recovery * deltaTime))
+					character:SetAttribute("Stamina", newStamina)
+				end
 			end
 		end
 	end

@@ -3,6 +3,11 @@
     Spawns and manages the 100 HP Noob Test Dummy (DEF = 0).
     Handles client 'B' key request to spawn a Noob dummy 6 studs in front of the player,
     displays overhead health bar and floating damage numbers, and auto-refreshes HP upon death.
+    Update 1.2:
+    - The Noob Dummy stands completely still in place (stationary).
+    - Every 1.0s, the Noob Dummy automatically executes Blocky's M1 attack straight ahead
+      (same 25 Physical damage, same front hitbox size/offset, punch animation & VFX)
+      so players can stand in front to test DEF damage reduction and HP regen.
 --]]
 
 local Workspace = game:GetService("Workspace")
@@ -12,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteManager = require(Shared.Modules.RemoteManager)
+local HitboxEngine = require(Shared.Modules.HitboxEngine)
 
 local DummyHandler = {}
 
@@ -59,15 +65,18 @@ function DummyHandler.SpawnNoobDummyForPlayer(player: Player)
 end
 
 function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
+	local CombatHandler = require(script.Parent.CombatHandler)
+
 	local model = Instance.new("Model")
 	model.Name = "NoobDummy"
 
-	-- 1. HumanoidRootPart
+	-- 1. HumanoidRootPart (Anchored so it stands completely stationary in place)
 	local hrp = Instance.new("Part")
 	hrp.Name = "HumanoidRootPart"
 	hrp.Size = Vector3.new(2, 2, 1)
 	hrp.Transparency = 1
 	hrp.CanCollide = false
+	hrp.Anchored = true
 	hrp.RootPriority = 1
 	hrp.CFrame = spawnCFrame
 	hrp.Parent = model
@@ -140,7 +149,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 		CFrame.new(0, -0.5, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0)
 	)
 
-	createJoint("Right Shoulder", torso, rightArm,
+	local rightShoulder = createJoint("Right Shoulder", torso, rightArm,
 		CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
 		CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0)
 	)
@@ -185,7 +194,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	-- 8. Overhead Health BillboardGui
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "DummyOverheadGui"
-	billboard.Size = UDim2.new(0, 160, 0, 48)
+	billboard.Size = UDim2.new(0, 170, 0, 48)
 	billboard.StudsOffset = Vector3.new(0, 2.6, 0)
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = 60
@@ -198,9 +207,9 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	nameLabel.Position = UDim2.new(0, 0, 0, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Enum.Font.GothamBlack
-	nameLabel.Text = "NOOB DUMMY (DEF: 0)"
+	nameLabel.Text = "ATTACKING NOOB DUMMY"
 	nameLabel.TextColor3 = Color3.fromRGB(255, 230, 80)
-	nameLabel.TextSize = 12
+	nameLabel.TextSize = 11
 	nameLabel.Parent = billboard
 
 	local nameStroke = Instance.new("UIStroke")
@@ -352,6 +361,78 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 
 	humanoid.Died:Connect(function()
 		refreshDummy()
+	end)
+
+	-- =========================================================================
+	-- 9. ATTACKING DUMMY LOGIC: AUTOMATIC BLOCKY M1 EVERY 1.0s
+	-- =========================================================================
+	local defaultShoulderC0 = CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0)
+	local punchShoulderC0 = defaultShoulderC0 * CFrame.Angles(math.rad(85), 0, math.rad(25))
+	local hitboxSize = Vector3.new(4, 5, 5)
+	local hitboxOffset = Vector3.new(0, 0, -3.2)
+
+	local function performDummyM1()
+		if not model or not model.Parent or humanoid.Health <= 0 then return end
+
+		-- 1. Punch Animation on Right Shoulder
+		if rightShoulder and rightShoulder.Parent then
+			TweenService:Create(rightShoulder, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				C0 = punchShoulderC0
+			}):Play()
+
+			task.delay(0.12, function()
+				if rightShoulder and rightShoulder.Parent then
+					TweenService:Create(rightShoulder, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+						C0 = defaultShoulderC0
+					}):Play()
+				end
+			end)
+		end
+
+		-- 2. Punch Wave VFX
+		local punchWave = Instance.new("Part")
+		punchWave.Name = "DummyPunchVFX"
+		punchWave.Size = Vector3.new(4, 5, 0.5)
+		punchWave.CFrame = hrp.CFrame * CFrame.new(hitboxOffset)
+		punchWave.Color = COLOR_YELLOW
+		punchWave.Material = Enum.Material.Neon
+		punchWave.Transparency = 0.5
+		punchWave.CanCollide = false
+		punchWave.Anchored = true
+		punchWave.Parent = Workspace
+
+		TweenService:Create(punchWave, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+			Size = Vector3.new(4.5, 5.2, 0.6)
+		}):Play()
+		Debris:AddItem(punchWave, 0.25)
+
+		-- 3. Sound
+		local sound = Instance.new("Sound")
+		sound.SoundId = "rbxasset://sounds/sword/swish.wav"
+		sound.Volume = 0.7
+		sound.Parent = hrp
+		sound:Play()
+		Debris:AddItem(sound, 1)
+
+		-- 4. Hitbox Query & Damage Application (25 Physical Damage)
+		local hitboxCFrame = hrp.CFrame * CFrame.new(hitboxOffset)
+		local targets = HitboxEngine.GetTargetsInBox(model, hitboxCFrame, hitboxSize)
+
+		for _, targetChar in ipairs(targets) do
+			CombatHandler.ApplyDamage(model, targetChar, 25, "Physical", 11, 0.3)
+		end
+	end
+
+	-- Run attack loop every 1.0s continuously
+	task.spawn(function()
+		while model and model.Parent do
+			task.wait(1.0)
+			if not model or not model.Parent then break end
+			if humanoid and humanoid.Health > 0 and not isRefreshing then
+				performDummyM1()
+			end
+		end
 	end)
 
 	model.Parent = Workspace

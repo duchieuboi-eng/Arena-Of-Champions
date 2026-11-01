@@ -56,19 +56,19 @@ local CharacterConfig = {
 		PortraitImage = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 	},
 
-	-- Grot: Heavy nature golem with innate DEF and Sprout Grows M1
+	-- Grot: Heavy nature golem with innate DEF, Sprout Grows M1, and Vine E skill
 	Grot = {
 		Name = "Grot",
-		Description = "Sturdy nature golem with high HP, innate DEF barrier, and life-stealing Sprout Grows M1.",
+		Description = "Sturdy nature golem with high HP, innate DEF barrier, life-stealing Sprout Grows M1, and pulsing Vine slam.",
 		
 		-- 12-Stat Schema
 		HP = 250,
 		Regen = 2.5,
 		Stamina = 75,
 		Recovery = 2.5,
-		Walk = 15,
-		Sprint = 20,
-		Jump = 75, -- Heavy golem 75 JumpPower
+		Walk = 14,
+		Sprint = 18,
+		Jump = 44, -- Grot JumpPower 44
 		Physical = 25,
 		Magic = 0,
 		DEF = 15,
@@ -78,6 +78,7 @@ local CharacterConfig = {
 		StaminaDrainRate = 15,
 		Skills = {
 			M1 = "GrotM1",
+			E = "GrotS1",
 		},
 		PortraitImage = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 	},

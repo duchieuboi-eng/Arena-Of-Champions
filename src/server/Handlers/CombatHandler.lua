@@ -1,9 +1,10 @@
 --[[
     CombatHandler.lua
     Server-authoritative combat handler.
-    Validates attack requests, checks 2.0s cooldown starting immediately upon click,
+    Validates attack and skill requests, tracks cooldowns per skill independently,
     executes lingering hitboxes strictly in front of the player (negative local Z),
-    applies flat DEF damage mitigation, and resets IsAttacking cleanly at 0.45s.
+    applies dynamic stat formulas with math.ceil() rounding, flat DEF damage mitigation,
+    and coordinates Grot M1 (0.10s linger) and Grot S1 "Vine" (5-frame windup, 2.0s pulse zone).
 --]]
 
 local Workspace = game:GetService("Workspace")
@@ -23,7 +24,8 @@ local CombatHandler = {}
 local attackRemote = RemoteManager.GetRemoteEvent("PerformAttack")
 local visualRemote = RemoteManager.GetRemoteEvent("PlayAttackVisuals")
 
-local playerAttackCooldowns = {}
+-- playerSkillCooldowns[player][attackType] = lastTimestamp
+local playerSkillCooldowns = {}
 
 function CombatHandler.Init()
 	attackRemote.OnServerEvent:Connect(function(player, attackType)
@@ -31,7 +33,7 @@ function CombatHandler.Init()
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
-		playerAttackCooldowns[player] = nil
+		playerSkillCooldowns[player] = nil
 	end)
 end
 
@@ -43,7 +45,7 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 	local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Grot_hitbox") :: BasePart
 	if not humanoid or humanoid.Health <= 0 or not rootPart then return end
 
-	-- Disallow M1 if Unmorphed, Hitstunned, or currently executing another attack swing
+	-- Disallow attacks if Unmorphed, Hitstunned, or currently executing another attack swing
 	local charId = character:GetAttribute("CharacterId") or "Unmorphed"
 	if charId == "Unmorphed" then
 		return
@@ -54,7 +56,10 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 	end
 
 	local currentTime = os.clock()
-	local lastCooldown = playerAttackCooldowns[player] or 0
+	if not playerSkillCooldowns[player] then
+		playerSkillCooldowns[player] = {}
+	end
+	local lastCooldown = playerSkillCooldowns[player][attackType] or 0
 
 	-- =========================================================================
 	-- 1. BLOCKY M1 ATTACK (1.5s Cooldown, 0 Stamina)
@@ -68,8 +73,7 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 			return
 		end
 
-		-- Start cooldown timer immediately upon attack initiation
-		playerAttackCooldowns[player] = currentTime
+		playerSkillCooldowns[player][attackType] = currentTime
 		character:SetAttribute("IsAttacking", true)
 
 		visualRemote:FireAllClients(player, "BlockyM1", 1)
@@ -80,12 +84,15 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 			local hitboxCFrame = rootPart.CFrame * CFrame.new(attackData.HitboxOffset)
 			local targets = HitboxEngine.GetTargetsInBox(character, hitboxCFrame, attackData.HitboxSize)
 
+			local physStat = character:GetAttribute("Physical") or 25
+			local rawDamage = math.ceil(physStat > 0 and physStat or attackData.Damage)
+
 			for _, targetChar in ipairs(targets) do
-				CombatHandler.ApplyDamage(character, targetChar, attackData.Damage, attackData.DamageType or "Physical", attackData.Knockback, attackData.Hitstun)
+				CombatHandler.ApplyDamage(character, targetChar, rawDamage, attackData.DamageType or "Physical", attackData.Knockback, attackData.Hitstun)
 			end
 		end)
 
-		-- Reset IsAttacking right when attack duration finishes
+		-- Reset IsAttacking cleanly
 		task.delay(attackData.HitboxDuration + 0.1, function()
 			if character and character.Parent then
 				character:SetAttribute("IsAttacking", false)
@@ -93,7 +100,7 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 		end)
 
 	-- =========================================================================
-	-- 2. GROT M1 ATTACK ("Sprout grows" - True 2.0s Cooldown, 0 Stamina)
+	-- 2. GROT M1 ATTACK ("Sprout grows" - 2.0s Cooldown, 0.10s Linger, 0 Stamina)
 	-- =========================================================================
 	elseif attackType == "GrotM1" and charId == "Grot" then
 		local attackData = CombatConfig.GrotM1
@@ -104,14 +111,13 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 			return
 		end
 
-		-- Start 2.0s cooldown timer immediately at the exact click timestamp
-		playerAttackCooldowns[player] = currentTime
+		playerSkillCooldowns[player][attackType] = currentTime
 		character:SetAttribute("IsAttacking", true)
 
-		-- Trigger visual 3-frame animation
 		visualRemote:FireAllClients(player, "GrotM1", 1)
 
-		-- 0.25s Wind-up delay, then 0.20s active linger window
+		-- 0.25s Wind-up delay, then 0.10s active linger window
+		local lingerDuration = attackData.Linger or 0.10
 		task.delay(attackData.Windup, function()
 			if not character or not character.Parent or not rootPart then return end
 
@@ -139,27 +145,27 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 			hitboxVisual.CanQuery = false
 			hitboxVisual.Anchored = true
 			hitboxVisual.Parent = Workspace
-			Debris:AddItem(hitboxVisual, attackData.Linger + 0.05)
+			Debris:AddItem(hitboxVisual, lingerDuration + 0.05)
 
 			local hitTargets = {}
 			local hasHitAtLeastOneEnemy = false
 			local lingerStartTime = os.clock()
 
-			-- Base Physical Damage = Physical (25) - Walk (15) = 10
+			-- Dynamic Formula: math.ceil(Physical - Walk) = math.ceil(25 - 14) = 11
 			local physStat = character:GetAttribute("Physical") or 25
-			local walkStat = character:GetAttribute("Walk") or 15
-			local baseDamage = math.max(0, physStat - walkStat)
+			local walkStat = character:GetAttribute("Walk") or 14
+			local baseDamage = math.ceil(math.max(0, physStat - walkStat))
 
 			local critChance = character:GetAttribute("Crit") or 0
 			local critDmg = character:GetAttribute("CritDMG") or 100
 			if critChance > 0 and math.random(1, 100) <= critChance then
-				baseDamage = baseDamage * (critDmg / 100)
+				baseDamage = math.ceil(baseDamage * (critDmg / 100))
 			end
 
 			local lingerConnection: RBXScriptConnection
 			lingerConnection = RunService.Heartbeat:Connect(function()
 				local elapsed = os.clock() - lingerStartTime
-				if elapsed >= attackData.Linger or not character or not character.Parent or not rootPart then
+				if elapsed >= lingerDuration or not character or not character.Parent or not rootPart then
 					if lingerConnection then
 						lingerConnection:Disconnect()
 						lingerConnection = nil
@@ -184,7 +190,7 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 
 						CombatHandler.ApplyDamage(character, targetChar, baseDamage, "Physical", attackData.Knockback, attackData.Hitstun)
 
-						-- Self-Heal: once per swing if at least one enemy hit
+						-- Self-Heal: once per swing if at least one enemy hit (+Regen = 2.5 HP)
 						if not hasHitAtLeastOneEnemy then
 							hasHitAtLeastOneEnemy = true
 							local regenStat = character:GetAttribute("Regen") or 2.5
@@ -198,18 +204,131 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 			end)
 		end)
 
-		-- Reset IsAttacking cleanly after 0.45s (0.25s windup + 0.20s linger = 0.45s)
-		task.delay(0.45, function()
+		-- Reset IsAttacking cleanly after 0.35s (0.25s windup + 0.10s linger = 0.35s)
+		task.delay(attackData.Windup + lingerDuration, function()
 			if character and character.Parent then
 				character:SetAttribute("IsAttacking", false)
 			end
+		end)
+
+	-- =========================================================================
+	-- 3. GROT SKILL 1 ("Vine" / E Key - 16.0s Cooldown, 5-Frame Windup, 2.0s Zone)
+	-- =========================================================================
+	elseif attackType == "GrotS1" and charId == "Grot" then
+		local skillData = CombatConfig.GrotS1
+		if not skillData then return end
+
+		-- Check 16.0s cooldown
+		if (currentTime - lastCooldown) < (skillData.Cooldown - 0.08) then
+			return
+		end
+
+		playerSkillCooldowns[player][attackType] = currentTime
+		character:SetAttribute("IsAttacking", true)
+
+		-- 1. Set movement speed to 0 during entire 5-frame wind-up (0.80s)
+		local normalWalkSpeed = character:GetAttribute("Walk") or 14
+		humanoid.WalkSpeed = 0
+
+		-- 2. Trigger 5-frame visuals across all clients
+		visualRemote:FireAllClients(player, "GrotS1", 1)
+
+		-- 3. Frames 1 to 4 (0.55s): Player can spin/aim. At 0.55s, entering Frame 5: lock rotation!
+		task.delay(skillData.AimLockTime or 0.55, function()
+			if humanoid and humanoid.Parent then
+				humanoid.AutoRotate = false
+			end
+		end)
+
+		-- 4. At 0.80s: Frame 5 finishes! Unlock movement/rotation, establish 2.0s lingering zone
+		task.delay(skillData.Windup or 0.80, function()
+			if not character or not character.Parent or not rootPart then return end
+
+			-- Unlock movement and rotation immediately
+			humanoid.WalkSpeed = normalWalkSpeed
+			humanoid.AutoRotate = true
+			character:SetAttribute("IsAttacking", false)
+
+			-- Capture final orientation where Grot faced at Frame 5
+			local finalFacingCFrame = rootPart.CFrame
+			local s1HitboxData = GrotRigFactory.ExtractS1HitboxData()
+			local zoneCFrame = finalFacingCFrame * s1HitboxData.Offset
+			local hitboxSize = s1HitboxData.Size
+
+			-- Spawn lingering spiky visual in world
+			local vineVisual = GrotRigFactory.CreateSkillAreaVisual(5)
+			if vineVisual:IsA("Model") and vineVisual.PrimaryPart then
+				vineVisual:PivotTo(zoneCFrame)
+			elseif vineVisual:IsA("BasePart") then
+				vineVisual.CFrame = zoneCFrame
+			end
+			vineVisual.Parent = Workspace
+			Debris:AddItem(vineVisual, skillData.Linger or 2.0)
+
+			-- Pulse Logic: Every 0.25s for 2.0s = 8 pulses total
+			task.spawn(function()
+				local totalPulses = skillData.TotalPulses or 8
+				local pulseInterval = skillData.PulseInterval or 0.25
+
+				for pulseIndex = 1, totalPulses do
+					if not character or not character.Parent then break end
+
+					-- Show translucent red debug hitbox visual for each pulse
+					local pulseDebug = Instance.new("Part")
+					pulseDebug.Name = "VinePulseDebug"
+					pulseDebug.Size = hitboxSize
+					pulseDebug.CFrame = zoneCFrame
+					pulseDebug.Color = Color3.fromRGB(255, 50, 50)
+					pulseDebug.Transparency = 0.6
+					pulseDebug.Material = Enum.Material.Neon
+					pulseDebug.CanCollide = false
+					pulseDebug.CanTouch = false
+					pulseDebug.CanQuery = false
+					pulseDebug.Anchored = true
+					pulseDebug.Parent = Workspace
+					Debris:AddItem(pulseDebug, 0.18)
+
+					-- Query enemies inside the vine zone
+					local targets = HitboxEngine.GetTargetsInBox(character, zoneCFrame, hitboxSize)
+
+					-- Formula: math.ceil((Physical / 2) + Magic) = math.ceil(12.5 + 0) = 13
+					local physStat = character:GetAttribute("Physical") or 25
+					local magicStat = character:GetAttribute("Magic") or 0
+					local pulseDamage = math.ceil((physStat / 2) + magicStat)
+
+					local critChance = character:GetAttribute("Crit") or 0
+					local critDmg = character:GetAttribute("CritDMG") or 100
+					if critChance > 0 and math.random(1, 100) <= critChance then
+						pulseDamage = math.ceil(pulseDamage * (critDmg / 100))
+					end
+
+					for _, targetChar in ipairs(targets) do
+						CombatHandler.ApplyDamage(character, targetChar, pulseDamage, "Physical", skillData.Knockback, skillData.Hitstun)
+					end
+
+					-- Heal Rule: If pulse hits >= 1 enemy, heal Grot once by {Regen} (+2.5 HP)
+					if #targets > 0 and humanoid and humanoid.Health > 0 then
+						local regenStat = character:GetAttribute("Regen") or 2.5
+						local maxHp = character:GetAttribute("MaxHealth") or 250
+						local newHp = math.min(maxHp, humanoid.Health + regenStat)
+						humanoid.Health = newHp
+						character:SetAttribute("Health", newHp)
+					end
+
+					task.wait(pulseInterval)
+				end
+
+				if vineVisual and vineVisual.Parent then
+					vineVisual:Destroy()
+				end
+			end)
 		end)
 	end
 end
 
 --[[
     Applies server-authoritative damage, flat DEF mitigation, knockback, and hitstun.
-    Formula: FinalDamage = math.max(0, RawDamage - TargetDEF). TRUE damage bypasses DEF.
+    Formula: FinalDamage = math.max(0, math.ceil(RawDamage) - TargetDEF). TRUE damage bypasses DEF.
 --]]
 function CombatHandler.ApplyDamage(attacker: Model, target: Model, rawDamage: number, damageType: string, knockback: number, hitstun: number)
 	local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
@@ -218,10 +337,12 @@ function CombatHandler.ApplyDamage(attacker: Model, target: Model, rawDamage: nu
 
 	if not targetHumanoid or targetHumanoid.Health <= 0 then return end
 
-	local finalDamage = rawDamage
+	local roundedDamage = math.ceil(rawDamage)
+	local finalDamage = roundedDamage
+
 	if damageType ~= "TRUE" then
 		local targetDef = target:GetAttribute("DEF") or 0
-		finalDamage = math.max(0, rawDamage - targetDef)
+		finalDamage = math.max(0, roundedDamage - targetDef)
 	end
 
 	targetHumanoid:TakeDamage(finalDamage)

@@ -1,0 +1,67 @@
+Please implement the following control updates, global regeneration rules, Grot stat/animation updates, the new "VINE" (E) skill, and attacking Noob Dummies:
+
+### 1. CONTROLS & GLOBAL REGEN / STAMINA RULES
+1. **Rebind Shift-Lock to `Ctrl` (`LeftControl` / `RightControl`):**
+   - Since `LeftShift` is used for Sprint, change the Shift-Lock toggle keybind to `LeftControl` (and `RightControl`) so holding `LeftShift` to sprint never conflicts with Shift-Lock.
+2. **Stamina Recovery 1.0s Delay After Sprinting:**
+   - When the player stops holding `LeftShift` (stops sprinting), wait **`1.0s`** before Stamina begins regenerating (`Recovery * dt`). If they start sprinting again before 1s is up, reset the delay timer.
+3. **Global Passive HP Regen (Every 2.5s Tick):**
+   - Change passive HP regeneration for all characters so it no longer ticks continuously every frame.
+   - Instead, tick passive HP regen once every **`2.5s`**, healing the character by a flat `{Regen}` amount (`math.min(MaxHP, HP + Regen)`).
+4. **Dynamic Stat Formulas & Round UP (`math.ceil`):**
+   - Never hardcode skill damage numbers. Always read live character stats (`Physical`, `Walk`, `Magic`, `Regen`, `DEF`) dynamically so future stat buffs/nerfs automatically update skill damage.
+   - Round UP all calculated skill damage values using `math.ceil()`.
+
+---
+
+### 2. GROT STAT TWEAKS, RIGGING & 2-FRAME WALK/SPRINT LOOPS
+1. **Updated Grot Stats & M1 Linger:**
+   - Update Grot's stats in `CharacterConfig.lua`: `Walk = 14`, `Sprint = 18`, and set `JumpPower = 44` (`humanoid.UseJumpPower = true`).
+   - Because `Walk` is now `14`, Grot's M1 formula `math.ceil(Physical - Walk)` dynamically deals `25 - 14 = 11` Physical damage.
+   - Reduce Grot's M1 active hitbox linger duration from `0.20s` to **`0.10s`** (keep wind-up at `0.25s`, cooldown at `2.0s` starting immediately on click, and `StaminaCost = 0`).
+2. **Updated `Workspace.Grot` Asset Folder & 2-Frame Movement Animations:**
+   - All Grot reference models and hitboxes are now grouped inside `Workspace.Grot`:
+     - Base & Movement: `Grot_model`, `Grot_walk1`, `Grot_walk2`, `Grot_sprint1`, `Grot_sprint2`
+     - M1 Frames & Hitboxes: `Grot_M1frame1`, `Grot_M1frame2`, `Grot_M1frame3`, `Grot_M1hitbox`, `Grot_M1interhitbox`
+     - Skill 1 ("Vine") Frames, Visuals & Hitboxes: `Grot_S1frame1`, `Grot_S1frame2`, `Grot_S1frame3`, `Grot_S1frame4`, `Grot_S1frame5`, `Skill area`, `Grot_S1hitbox`, `Grot_S1interhitbox`
+   - On server startup, move/clone `Workspace.Grot` into `ReplicatedStorage.GrotAssets`.
+   - When extracting the 6 body limbs (`Brown arm`, `Brown leg`, `Head`, `Orange arm`, `Orange leg`, `Torso`), ignore `Skill area` so it isn't welded as a permanent body limb, and use `:GetBoundingBox()` centers for limb pivots so no limbs float or stretch.
+   - **Walk Animation (Speed 14):** While walking, smoothly loop back and forth between `Grot_walk1` -> `Grot_walk2` -> `Grot_walk1` repeatedly.
+   - **Sprint Animation (Speed 18, Hold LeftShift):** While sprinting, smoothly loop back and forth between `Grot_sprint1` -> `Grot_sprint2` -> `Grot_sprint1` repeatedly.
+
+---
+
+### 3. NEW GROT SKILL (`E` KEY): "VINE" (`Grot_S1`)
+1. **Overview & HUD Slot:**
+   - **Keybind:** `E`
+   - **Name:** `"Vine"`
+   - **Description:** Grot ultra-charges a heavy impact that grows spiky vines in a line area, dealing pulsing damage and healing himself on hit.
+   - **Cooldown:** `16.0s` (`StaminaCost = 0`). Add an `[E]` skill icon slot next to `[MB1]` on the HUD that displays `"Vine"` when morphed into Grot (and `"LOCKED"` on characters without an E skill).
+2. **5-Frame Wind-Up Animation (`0.80s` Total) & Movement/Spin Rules:**
+   - When pressing `E`, play the 5-frame pose sequence sequentially:
+     - **Frame 1 (`Grot_S1frame1`):** `0.10s`
+     - **Frame 2 (`Grot_S1frame2`):** `0.25s`
+     - **Frame 3 (`Grot_S1frame3`):** `0.10s`
+     - **Frame 4 (`Grot_S1frame4`):** `0.10s`
+     - **Frame 5 (`Grot_S1frame5`):** `0.25s`
+   - **Movement & Aiming Lock Rules during Wind-Up (`0.80s`):**
+     - During all 5 frames (`0.80s` total), set Grot's movement speed to `0` (`WalkSpeed = 0`, cannot walk or sprint) and prevent M1 casting.
+     - During **Frames 1 to 4** (first `0.55s`), the player **CAN spin/rotate around** freely (via Shift-Lock / camera / character rotation) to aim where the vine line will land.
+     - Entering **Frame 5** (final `0.25s`), **lock the player's rotation completely** (`humanoid.AutoRotate = false` and lock `HumanoidRootPart` orientation) so they cannot spin during the final slam frame.
+     - As each frame plays (`Grot_S1frame1` through `Grot_S1frame5`), display the corresponding stage of the `Skill area` vine visual in front of Grot (extracted from each frame's `Skill area` or `Grot["Skill area"]` relative to `Grot_hitbox`).
+3. **Lingering Vine Zone (`2.0s` Duration) & Pulse Damage/Heal:**
+   - Immediately after Frame 5 finishes (at `0.80s`):
+     - Unlock Grot's movement (`WalkSpeed` restored, `AutoRotate = true`) and allow Grot to walk, sprint, and use M1 freely.
+     - Leave the final spiky `Skill area` visual and the active hitbox (`Grot_S1hitbox` positioned using its relative offset to `Grot_S1interhitbox`, always aligned in front of where Grot was facing at Frame 5) anchored in the world for **`2.0s`**.
+   - **Pulse Logic (Every `0.25s` for `2.0s` = 8 pulses total):**
+     - Every `0.25s` during the `2.0s` lingering duration, show the translucent red debug hitbox (`Grot_S1hitbox` size and offset) and query all enemy targets inside the box (excluding the caster).
+     - **Damage Formula:** Deal `math.ceil((Physical / 2) + Magic)` damage to every enemy inside the hitbox on that pulse (for Grot: `math.ceil((25 / 2) + 0) = 13` damage per pulse, reduced by each target's flat `DEF`).
+     - **Heal Rule:** On each `0.25s` pulse, if the pulse hits **at least one** enemy (whether 1 enemy or 100 enemies), heal Grot **once** for that pulse by `{Regen}` (`+2.5 HP`, capped at `MaxHP`).
+     - After `2.0s`, clean up/destroy the lingering `Skill area` visual and hitbox.
+
+---
+
+### 4. ATTACKING NOOB DUMMY (SPAMS BLOCKY M1 EVERY 1.0s)
+- Upgrade the Noob Testing Dummy (`DummyHandler.lua` spawned via `B` key):
+  - The Noob Dummy stands completely still in place (stationary, does not walk around).
+  - Every **`1.0s`**, the Noob Dummy automatically executes **Blocky's M1 attack** (same damage, same front hitbox size/offset, and punch animation) straight ahead so players can stand in front of it to test `DEF` damage reduction and passive/skill HP regeneration.

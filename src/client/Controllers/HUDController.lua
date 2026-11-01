@@ -23,15 +23,7 @@ local nameLabel: TextLabel
 local avatarImage: ImageLabel
 
 -- Skill UI References
-local skillSlotFrame: Frame
-local skillIconBox: Frame
-local skillIconStroke: UIStroke
-local skillIconSymbol: TextLabel
-local skillNameLabel: TextLabel
-local cooldownOverlay: Frame
-local cooldownText: TextLabel
-local skillKeyLabel: TextLabel
-local currentCooldownThread: thread?
+local skillSlots = {}
 
 -- Sliding Drawer Handle Bar & Panel References
 local drawerHandleBar: TextButton
@@ -256,108 +248,127 @@ function HUDController.BuildUI()
 	staminaTextStroke.Parent = staminaText
 
 	-- =========================================================================
-	-- 2. SKILL BAR CONTAINER (M1 Slot)
+	-- 2. SKILL BAR CONTAINERS ([ M1 ] and [ E ])
 	-- =========================================================================
-	skillSlotFrame = Instance.new("Frame")
-	skillSlotFrame.Name = "SkillSlot_M1"
-	skillSlotFrame.Size = UDim2.new(0, 95, 0, 105)
-	skillSlotFrame.Position = UDim2.new(0, 420, 1, -135)
-	skillSlotFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
-	skillSlotFrame.BackgroundTransparency = 0.25
-	skillSlotFrame.BorderSizePixel = 0
-	skillSlotFrame.Parent = screenGui
+	local function createSkillSlot(slotKey: string, keyText: string, pos: UDim2)
+		local frame = Instance.new("Frame")
+		frame.Name = "SkillSlot_" .. slotKey
+		frame.Size = UDim2.new(0, 95, 0, 105)
+		frame.Position = pos
+		frame.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
+		frame.BackgroundTransparency = 0.25
+		frame.BorderSizePixel = 0
+		frame.Parent = screenGui
 
-	local slotCorner = Instance.new("UICorner")
-	slotCorner.CornerRadius = UDim.new(0, 12)
-	slotCorner.Parent = skillSlotFrame
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 12)
+		corner.Parent = frame
 
-	local slotStroke = Instance.new("UIStroke")
-	slotStroke.Color = Color3.fromRGB(45, 50, 65)
-	slotStroke.Thickness = 1.5
-	slotStroke.Transparency = 0.3
-	slotStroke.Parent = skillSlotFrame
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(45, 50, 65)
+		stroke.Thickness = 1.5
+		stroke.Transparency = 0.3
+		stroke.Parent = frame
 
-	skillKeyLabel = Instance.new("TextLabel")
-	skillKeyLabel.Name = "KeyLabel"
-	skillKeyLabel.Size = UDim2.new(1, 0, 0, 18)
-	skillKeyLabel.Position = UDim2.new(0, 0, 0, 5)
-	skillKeyLabel.BackgroundTransparency = 1
-	skillKeyLabel.Font = Enum.Font.GothamBlack
-	skillKeyLabel.Text = "[ M1 ]"
-	skillKeyLabel.TextColor3 = Color3.fromRGB(0, 215, 255)
-	skillKeyLabel.TextSize = 12
-	skillKeyLabel.Parent = skillSlotFrame
+		local keyLabel = Instance.new("TextLabel")
+		keyLabel.Name = "KeyLabel"
+		keyLabel.Size = UDim2.new(1, 0, 0, 18)
+		keyLabel.Position = UDim2.new(0, 0, 0, 5)
+		keyLabel.BackgroundTransparency = 1
+		keyLabel.Font = Enum.Font.GothamBlack
+		keyLabel.Text = keyText
+		keyLabel.TextColor3 = Color3.fromRGB(0, 215, 255)
+		keyLabel.TextSize = 12
+		keyLabel.Parent = frame
 
-	local keyStroke = Instance.new("UIStroke")
-	keyStroke.Color = Color3.fromRGB(0, 0, 0)
-	keyStroke.Thickness = 1
-	keyStroke.Parent = skillKeyLabel
+		local kStroke = Instance.new("UIStroke")
+		kStroke.Color = Color3.fromRGB(0, 0, 0)
+		kStroke.Thickness = 1
+		kStroke.Parent = keyLabel
 
-	skillIconBox = Instance.new("Frame")
-	skillIconBox.Name = "IconBox"
-	skillIconBox.Size = UDim2.new(0, 52, 0, 52)
-	skillIconBox.Position = UDim2.new(0.5, -26, 0, 24)
-	skillIconBox.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
-	skillIconBox.BorderSizePixel = 0
-	skillIconBox.ClipsDescendants = true
-	skillIconBox.Parent = skillSlotFrame
+		local iconBox = Instance.new("Frame")
+		iconBox.Name = "IconBox"
+		iconBox.Size = UDim2.new(0, 52, 0, 52)
+		iconBox.Position = UDim2.new(0.5, -26, 0, 24)
+		iconBox.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
+		iconBox.BorderSizePixel = 0
+		iconBox.ClipsDescendants = true
+		iconBox.Parent = frame
 
-	local iconCorner = Instance.new("UICorner")
-	iconCorner.CornerRadius = UDim.new(0, 8)
-	iconCorner.Parent = skillIconBox
+		local iCorner = Instance.new("UICorner")
+		iCorner.CornerRadius = UDim.new(0, 8)
+		iCorner.Parent = iconBox
 
-	skillIconStroke = Instance.new("UIStroke")
-	skillIconStroke.Color = Color3.fromRGB(60, 72, 95)
-	skillIconStroke.Thickness = 1.5
-	skillIconStroke.Parent = skillIconBox
+		local iconStroke = Instance.new("UIStroke")
+		iconStroke.Color = Color3.fromRGB(60, 72, 95)
+		iconStroke.Thickness = 1.5
+		iconStroke.Parent = iconBox
 
-	skillIconSymbol = Instance.new("TextLabel")
-	skillIconSymbol.Name = "IconSymbol"
-	skillIconSymbol.Size = UDim2.new(1, 0, 1, 0)
-	skillIconSymbol.BackgroundTransparency = 1
-	skillIconSymbol.Font = Enum.Font.GothamBlack
-	skillIconSymbol.Text = "🔒"
-	skillIconSymbol.TextSize = 24
-	skillIconSymbol.Parent = skillIconBox
+		local iconSymbol = Instance.new("TextLabel")
+		iconSymbol.Name = "IconSymbol"
+		iconSymbol.Size = UDim2.new(1, 0, 1, 0)
+		iconSymbol.BackgroundTransparency = 1
+		iconSymbol.Font = Enum.Font.GothamBlack
+		iconSymbol.Text = "🔒"
+		iconSymbol.TextSize = 24
+		iconSymbol.Parent = iconBox
 
-	cooldownOverlay = Instance.new("Frame")
-	cooldownOverlay.Name = "CooldownOverlay"
-	cooldownOverlay.Size = UDim2.new(1, 0, 0, 0)
-	cooldownOverlay.Position = UDim2.new(0, 0, 1, 0)
-	cooldownOverlay.AnchorPoint = Vector2.new(0, 1)
-	cooldownOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	cooldownOverlay.BackgroundTransparency = 0.45
-	cooldownOverlay.BorderSizePixel = 0
-	cooldownOverlay.ZIndex = 4
-	cooldownOverlay.Parent = skillIconBox
+		local overlay = Instance.new("Frame")
+		overlay.Name = "CooldownOverlay"
+		overlay.Size = UDim2.new(1, 0, 0, 0)
+		overlay.Position = UDim2.new(0, 0, 1, 0)
+		overlay.AnchorPoint = Vector2.new(0, 1)
+		overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+		overlay.BackgroundTransparency = 0.45
+		overlay.BorderSizePixel = 0
+		overlay.ZIndex = 4
+		overlay.Parent = iconBox
 
-	cooldownText = Instance.new("TextLabel")
-	cooldownText.Name = "CooldownText"
-	cooldownText.Size = UDim2.new(1, 0, 1, 0)
-	cooldownText.BackgroundTransparency = 1
-	cooldownText.Font = Enum.Font.GothamBlack
-	cooldownText.Text = "2.0s"
-	cooldownText.TextColor3 = Color3.fromRGB(255, 255, 255)
-	cooldownText.TextSize = 16
-	cooldownText.Visible = false
-	cooldownText.ZIndex = 5
-	cooldownText.Parent = skillIconBox
+		local cdText = Instance.new("TextLabel")
+		cdText.Name = "CooldownText"
+		cdText.Size = UDim2.new(1, 0, 1, 0)
+		cdText.BackgroundTransparency = 1
+		cdText.Font = Enum.Font.GothamBlack
+		cdText.Text = "0.0s"
+		cdText.TextColor3 = Color3.fromRGB(255, 255, 255)
+		cdText.TextSize = 16
+		cdText.Visible = false
+		cdText.ZIndex = 5
+		cdText.Parent = iconBox
 
-	local cdStroke = Instance.new("UIStroke")
-	cdStroke.Color = Color3.fromRGB(0, 0, 0)
-	cdStroke.Thickness = 1.5
-	cdStroke.Parent = cooldownText
+		local cdStroke = Instance.new("UIStroke")
+		cdStroke.Color = Color3.fromRGB(0, 0, 0)
+		cdStroke.Thickness = 1.5
+		cdStroke.Parent = cdText
 
-	skillNameLabel = Instance.new("TextLabel")
-	skillNameLabel.Name = "SkillName"
-	skillNameLabel.Size = UDim2.new(1, 0, 0, 18)
-	skillNameLabel.Position = UDim2.new(0, 0, 1, -22)
-	skillNameLabel.BackgroundTransparency = 1
-	skillNameLabel.Font = Enum.Font.GothamBold
-	skillNameLabel.Text = "LOCKED"
-	skillNameLabel.TextColor3 = Color3.fromRGB(150, 165, 190)
-	skillNameLabel.TextSize = 10
-	skillNameLabel.Parent = skillSlotFrame
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.Name = "SkillName"
+		nameLbl.Size = UDim2.new(1, 0, 0, 18)
+		nameLbl.Position = UDim2.new(0, 0, 1, -22)
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Font = Enum.Font.GothamBold
+		nameLbl.Text = "LOCKED"
+		nameLbl.TextColor3 = Color3.fromRGB(150, 165, 190)
+		nameLbl.TextSize = 10
+		nameLbl.Parent = frame
+
+		local data = {
+			frame = frame,
+			keyLabel = keyLabel,
+			iconBox = iconBox,
+			iconStroke = iconStroke,
+			iconSymbol = iconSymbol,
+			cooldownOverlay = overlay,
+			cooldownText = cdText,
+			nameLabel = nameLbl,
+			cooldownThread = nil,
+		}
+		skillSlots[slotKey] = data
+		return data
+	end
+
+	createSkillSlot("M1", "[ M1 ]", UDim2.new(0, 420, 1, -135))
+	createSkillSlot("E", "[ E ]", UDim2.new(0, 525, 1, -135))
 
 	-- =========================================================================
 	-- 3. SLIDING DRAWER HANDLE BAR & STAT PANEL
@@ -532,42 +543,45 @@ function HUDController.BuildUI()
 end
 
 --[[
-    Triggers the animated cooldown sweep on the M1 skill icon.
+    Triggers the animated cooldown sweep on a skill slot ("M1" or "E").
     Starts immediately upon click and never blocks inputs.
 --]]
 function HUDController.TriggerSkillCooldown(skillId: string, duration: number)
-	if currentCooldownThread then
-		task.cancel(currentCooldownThread)
-		currentCooldownThread = nil
+	local slot = skillSlots[skillId] or skillSlots["M1"]
+	if not slot then return end
+
+	if slot.cooldownThread then
+		task.cancel(slot.cooldownThread)
+		slot.cooldownThread = nil
 	end
 
-	currentCooldownThread = task.spawn(function()
-		cooldownText.Visible = true
+	slot.cooldownThread = task.spawn(function()
+		slot.cooldownText.Visible = true
 		local startTime = os.clock()
 
 		while true do
 			local elapsed = os.clock() - startTime
 			local remaining = math.max(0, duration - elapsed)
 
-			cooldownText.Text = string.format("%.1fs", remaining)
+			slot.cooldownText.Text = string.format("%.1fs", remaining)
 			local ratio = remaining / duration
-			cooldownOverlay.Size = UDim2.new(1, 0, ratio, 0)
+			slot.cooldownOverlay.Size = UDim2.new(1, 0, ratio, 0)
 
 			if remaining <= 0 then break end
 			task.wait(0.03)
 		end
 
-		cooldownText.Visible = false
-		cooldownOverlay.Size = UDim2.new(1, 0, 0, 0)
+		slot.cooldownText.Visible = false
+		slot.cooldownOverlay.Size = UDim2.new(1, 0, 0, 0)
 
 		-- Asynchronous ready pulse (does NOT block input)
-		TweenService:Create(skillIconStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		TweenService:Create(slot.iconStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			Color = Color3.fromRGB(0, 255, 255),
 			Thickness = 2.5
 		}):Play()
 
 		task.delay(0.20, function()
-			TweenService:Create(skillIconStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			TweenService:Create(slot.iconStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 				Color = Color3.fromRGB(60, 72, 95),
 				Thickness = 1.5
 			}):Play()
@@ -643,21 +657,42 @@ function HUDController.BindCharacter(character: Model)
 		local charName = character:GetAttribute("CharacterName") or charId
 		nameLabel.Text = string.upper(charName)
 
+		local m1Slot = skillSlots["M1"]
+		local eSlot = skillSlots["E"]
+
 		if charId == "Unmorphed" then
-			skillKeyLabel.Text = "[ M1 ]"
-			skillIconSymbol.Text = "🔒"
-			skillNameLabel.Text = "LOCKED"
-			skillIconBox.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+			if m1Slot then
+				m1Slot.iconSymbol.Text = "🔒"
+				m1Slot.nameLabel.Text = "LOCKED"
+				m1Slot.iconBox.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+			end
+			if eSlot then
+				eSlot.iconSymbol.Text = "🔒"
+				eSlot.nameLabel.Text = "LOCKED"
+				eSlot.iconBox.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+			end
 		elseif charId == "Blocky" then
-			skillKeyLabel.Text = "[ M1 ]"
-			skillIconSymbol.Text = "👊"
-			skillNameLabel.Text = "25 DMG"
-			skillIconBox.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
+			if m1Slot then
+				m1Slot.iconSymbol.Text = "👊"
+				m1Slot.nameLabel.Text = "25 DMG"
+				m1Slot.iconBox.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
+			end
+			if eSlot then
+				eSlot.iconSymbol.Text = "🔒"
+				eSlot.nameLabel.Text = "LOCKED"
+				eSlot.iconBox.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+			end
 		elseif charId == "Grot" then
-			skillKeyLabel.Text = "[ M1 ]"
-			skillIconSymbol.Text = "🌱"
-			skillNameLabel.Text = "Sprout grows"
-			skillIconBox.BackgroundColor3 = Color3.fromRGB(20, 32, 24)
+			if m1Slot then
+				m1Slot.iconSymbol.Text = "🌱"
+				m1Slot.nameLabel.Text = "Sprout grows"
+				m1Slot.iconBox.BackgroundColor3 = Color3.fromRGB(20, 32, 24)
+			end
+			if eSlot then
+				eSlot.iconSymbol.Text = "🌿"
+				eSlot.nameLabel.Text = "Vine"
+				eSlot.iconBox.BackgroundColor3 = Color3.fromRGB(20, 36, 26)
+			end
 		end
 
 		UpdateStatsPanel()
