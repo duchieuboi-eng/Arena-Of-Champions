@@ -1,19 +1,22 @@
 --[[
     DummyHandler.lua
-    Spawns and manages the 100 HP Noob Test Dummy (DEF = 0).
-    Handles client 'B' key request to spawn a Noob dummy 6 studs in front of the player,
-    displays overhead health bar and floating damage numbers, and auto-refreshes HP upon death.
-    Update 1.2:
-    - The Noob Dummy stands completely still in place (stationary).
-    - Every 1.0s, the Noob Dummy automatically executes Blocky's M1 attack straight ahead
-      (same 25 Physical damage, same front hitbox size/offset, punch animation & VFX)
-      so players can stand in front to test DEF damage reduction and HP regen.
+    Spawns and manages Testing Dummies:
+    - Standard Noob Dummy (100 HP, DEF = 0)
+    - Moving Dummy (500 HP, DEF = 0, 12 WalkSpeed):
+        * Runs 25 studs straight ahead, then circles R=25 studs around spawn center forever,
+          facing tangent direction, stiff moving statue (no limb walk animation).
+    - Tank Dummy (9999 HP, DEF = 0, stationary statue)
+    - Aggressive Dummy (250 HP, DEF = 0, stationary):
+        * Attacks every 1.0s using a 3x3x3 hitbox directly in front (hrp * CFrame.new(0,0,-2.5))
+          dealing 10 Physical damage (mitigated by player's DEF, or 0 if Invincible).
+    - Clear All Dummies: removes all dummies in Workspace.
 --]]
 
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteManager = require(Shared.Modules.RemoteManager)
@@ -45,7 +48,7 @@ function DummyHandler.SpawnNoobDummyForPlayer(player: Player)
 	local character = player.Character
 	if not character then return end
 
-	local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Grot_hitbox") :: BasePart
+	local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Grot_hitbox") :: BasePart?
 	if not rootPart then return end
 
 	-- Debounce per player (0.5s)
@@ -64,13 +67,15 @@ function DummyHandler.SpawnNoobDummyForPlayer(player: Player)
 	DummyHandler.CreateNoobDummy(dummyCFrame)
 end
 
-function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
-	local CombatHandler = require(script.Parent.CombatHandler)
-
+--[[
+    Internal builder for Classic R6 Noob Rig.
+--]]
+local function buildBaseNoobModel(name: string, spawnCFrame: CFrame, maxHp: number, labelTitle: string): (Model, BasePart, BasePart, Motor6D?)
 	local model = Instance.new("Model")
-	model.Name = "NoobDummy"
+	model.Name = name
+	model:SetAttribute("IsTestingDummy", true)
 
-	-- 1. HumanoidRootPart (Anchored so it stands completely stationary in place)
+	-- 1. HumanoidRootPart
 	local hrp = Instance.new("Part")
 	hrp.Name = "HumanoidRootPart"
 	hrp.Size = Vector3.new(2, 2, 1)
@@ -111,9 +116,9 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	face.Parent = head
 
 	-- 4. Limbs
-	local function createLimb(name: string, size: Vector3, color: Color3)
+	local function createLimb(lName: string, size: Vector3, color: Color3)
 		local part = Instance.new("Part")
-		part.Name = name
+		part.Name = lName
 		part.Size = size
 		part.Color = color
 		part.Material = Enum.Material.SmoothPlastic
@@ -128,9 +133,9 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	local rightLeg = createLimb("Right Leg", Vector3.new(1, 2, 1), COLOR_GREEN)
 
 	-- 5. Standard R6 Joints
-	local function createJoint(name, part0, part1, c0, c1)
+	local function createJoint(jName, part0, part1, c0, c1)
 		local m6d = Instance.new("Motor6D")
-		m6d.Name = name
+		m6d.Name = jName
 		m6d.Part0 = part0
 		m6d.Part1 = part1
 		m6d.C0 = c0
@@ -169,35 +174,35 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 		CFrame.new(-0.5, 1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0)
 	)
 
-	-- 6. Humanoid (MaxHealth = 100, Health = 100, DEF = 0)
+	-- 6. Humanoid
 	local humanoid = Instance.new("Humanoid")
 	humanoid.Name = "Humanoid"
 	humanoid.RigType = Enum.HumanoidRigType.R6
-	humanoid.MaxHealth = 100
-	humanoid.Health = 100
+	humanoid.MaxHealth = maxHp
+	humanoid.Health = maxHp
 	humanoid.WalkSpeed = 0
 	humanoid.BreakJointsOnDeath = false
-	humanoid.DisplayName = "Noob Dummy"
+	humanoid.DisplayName = name
 	humanoid.Parent = model
 
 	model.PrimaryPart = hrp
 	model:PivotTo(spawnCFrame)
 
-	-- 7. Attributes: MaxHealth = 100, DEF = 0 for easy damage/healing testing
-	model:SetAttribute("CharacterName", "Noob Dummy")
-	model:SetAttribute("MaxHealth", 100)
-	model:SetAttribute("Health", 100)
-	model:SetAttribute("HP", 100)
+	-- 7. Attributes
+	model:SetAttribute("CharacterName", name)
+	model:SetAttribute("MaxHealth", maxHp)
+	model:SetAttribute("Health", maxHp)
+	model:SetAttribute("HP", maxHp)
 	model:SetAttribute("DEF", 0)
 	model:SetAttribute("Regen", 0)
 
 	-- 8. Overhead Health BillboardGui
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "DummyOverheadGui"
-	billboard.Size = UDim2.new(0, 170, 0, 48)
-	billboard.StudsOffset = Vector3.new(0, 2.6, 0)
+	billboard.Size = UDim2.new(0, 185, 0, 48)
+	billboard.StudsOffset = Vector3.new(0, 2.8, 0)
 	billboard.AlwaysOnTop = true
-	billboard.MaxDistance = 60
+	billboard.MaxDistance = 80
 	billboard.Adornee = head
 	billboard.Parent = head
 
@@ -207,7 +212,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	nameLabel.Position = UDim2.new(0, 0, 0, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Enum.Font.GothamBlack
-	nameLabel.Text = "ATTACKING NOOB DUMMY"
+	nameLabel.Text = labelTitle
 	nameLabel.TextColor3 = Color3.fromRGB(255, 230, 80)
 	nameLabel.TextSize = 11
 	nameLabel.Parent = billboard
@@ -251,7 +256,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	healthText.Size = UDim2.new(1, 0, 1, 0)
 	healthText.BackgroundTransparency = 1
 	healthText.Font = Enum.Font.GothamBold
-	healthText.Text = "100 / 100"
+	healthText.Text = string.format("%d / %d", maxHp, maxHp)
 	healthText.TextColor3 = Color3.fromRGB(255, 255, 255)
 	healthText.TextSize = 10
 	healthText.ZIndex = 3
@@ -263,7 +268,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	textStroke.Parent = healthText
 
 	-- Floating numbers and Refresh Logic
-	local lastHealth = 100
+	local lastHealth = maxHp
 	local isRefreshing = false
 
 	local function showFloatingNumber(text: string, color: Color3)
@@ -305,10 +310,10 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 		task.delay(0.35, function()
 			if not model or not model.Parent then return end
 
-			humanoid.MaxHealth = 100
-			humanoid.Health = 100
-			model:SetAttribute("Health", 100)
-			lastHealth = 100
+			humanoid.MaxHealth = maxHp
+			humanoid.Health = maxHp
+			model:SetAttribute("Health", maxHp)
+			lastHealth = maxHp
 
 			humanoid:ChangeState(Enum.HumanoidStateType.Running)
 
@@ -316,9 +321,9 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 				Size = UDim2.new(1, 0, 1, 0),
 				BackgroundColor3 = Color3.fromRGB(46, 204, 113)
 			}):Play()
-			healthText.Text = "100 / 100"
+			healthText.Text = string.format("%d / %d", maxHp, maxHp)
 
-			showFloatingNumber("+100 (REFRESHED)", Color3.fromRGB(46, 204, 113))
+			showFloatingNumber("+" .. tostring(maxHp) .. " (REFRESHED)", Color3.fromRGB(46, 204, 113))
 
 			task.delay(0.2, function()
 				isRefreshing = false
@@ -329,7 +334,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 	humanoid.HealthChanged:Connect(function(newHealth)
 		if isRefreshing then return end
 
-		local currentHp = math.clamp(newHealth, 0, 100)
+		local currentHp = math.clamp(newHealth, 0, maxHp)
 		local diff = lastHealth - currentHp
 		lastHealth = currentHp
 
@@ -339,7 +344,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 			showFloatingNumber("-" .. tostring(math.round(diff)), Color3.fromRGB(255, 75, 75))
 		end
 
-		local ratio = currentHp / 100
+		local ratio = currentHp / maxHp
 		TweenService:Create(healthFill, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
 			Size = UDim2.new(ratio, 0, 1, 0)
 		}):Play()
@@ -352,7 +357,7 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 			healthFill.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
 		end
 
-		healthText.Text = string.format("%d / 100", math.ceil(currentHp))
+		healthText.Text = string.format("%d / %d", math.ceil(currentHp), maxHp)
 
 		if currentHp <= 0 then
 			refreshDummy()
@@ -363,18 +368,107 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 		refreshDummy()
 	end)
 
-	-- =========================================================================
-	-- 9. ATTACKING DUMMY LOGIC: AUTOMATIC BLOCKY M1 EVERY 1.0s
-	-- =========================================================================
+	return model, hrp, torso, rightShoulder
+end
+
+--[[
+    1. Standard Noob Dummy (100 HP, DEF = 0)
+--]]
+function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
+	local model, hrp, torso, rightShoulder = buildBaseNoobModel("NoobDummy", spawnCFrame, 100, "NOOB DUMMY (100 HP)")
+	model.Parent = Workspace
+	return model
+end
+
+--[[
+    2. Moving Dummy (500 HP, 0 DEF, 12 WalkSpeed):
+    - Spawn position is the center of its circle.
+    - First runs straight forward 25 studs at 12 WalkSpeed.
+    - Then circles R=25 studs forever facing tangent, stiff statue (no walk animation).
+--]]
+function DummyHandler.CreateMovingDummy(spawnCFrame: CFrame): Model
+	local model, hrp, torso, _ = buildBaseNoobModel("MovingDummy", spawnCFrame, 500, "MOVING DUMMY (500 HP, SPD: 12)")
+	model.Parent = Workspace
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 12
+	end
+
+	task.spawn(function()
+		local centerPos = spawnCFrame.Position
+		local forwardDir = spawnCFrame.LookVector
+		local flatForward = Vector3.new(forwardDir.X, 0, forwardDir.Z).Unit
+		local startPos = centerPos
+		local perimeterPos = centerPos + (flatForward * 25)
+
+		-- Phase 1: Move straight forward 25 studs at 12 WalkSpeed (approx 2.08s)
+		local moveSpeed = 12
+		local travelTime = 25 / moveSpeed
+		local startTime = os.clock()
+
+		while model and model.Parent do
+			local elapsed = os.clock() - startTime
+			if elapsed >= travelTime then break end
+			local alpha = elapsed / travelTime
+			local currentPos = startPos:Lerp(perimeterPos, alpha)
+			hrp.CFrame = CFrame.lookAt(currentPos, currentPos + flatForward)
+			RunService.Heartbeat:Wait()
+		end
+
+		-- Phase 2: Continuously circle R = 25 studs around centerPos at 12 WalkSpeed
+		-- Angular velocity omega = v / R = 12 / 25 = 0.48 rad/s
+		local initialAngle = math.atan2(flatForward.Z, flatForward.X)
+		local circleStartTime = os.clock()
+		local omega = 12 / 25
+
+		while model and model.Parent do
+			local elapsed = os.clock() - circleStartTime
+			local angle = initialAngle + (elapsed * omega)
+
+			local newPos = centerPos + Vector3.new(25 * math.cos(angle), 0, 25 * math.sin(angle))
+			-- Tangent vector is perpendicular to radial vector (direction of movement along circle)
+			local tangent = Vector3.new(-math.sin(angle), 0, math.cos(angle))
+			hrp.CFrame = CFrame.lookAt(newPos, newPos + tangent)
+
+			RunService.Heartbeat:Wait()
+		end
+	end)
+
+	return model
+end
+
+--[[
+    3. Tank Dummy (9999 HP, 0 DEF, stationary avatar statue)
+--]]
+function DummyHandler.CreateTankDummy(spawnCFrame: CFrame): Model
+	local model, hrp, torso, _ = buildBaseNoobModel("TankDummy", spawnCFrame, 9999, "TANK DUMMY (9999 HP, DEF: 0)")
+	model.Parent = Workspace
+	return model
+end
+
+--[[
+    4. Aggressive Dummy (250 HP, 0 DEF, stationary):
+    - Attacks every 1.0s using a 3x3x3 hitbox directly in front (hrp * CFrame.new(0,0,-2.5))
+      dealing 10 Physical damage (mitigated by target DEF, or 0 if Invincible).
+    - Reliably hits Grot (Grot_hitbox), Blocky, and Unmorphed players.
+--]]
+function DummyHandler.CreateAggressiveDummy(spawnCFrame: CFrame): Model
+	local CombatHandler = require(script.Parent.CombatHandler)
+	local model, hrp, torso, rightShoulder = buildBaseNoobModel("AggressiveDummy", spawnCFrame, 250, "AGGRESSIVE DUMMY (250 HP, 10 DMG)")
+	model.Parent = Workspace
+
 	local defaultShoulderC0 = CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0)
 	local punchShoulderC0 = defaultShoulderC0 * CFrame.Angles(math.rad(85), 0, math.rad(25))
-	local hitboxSize = Vector3.new(4, 5, 5)
-	local hitboxOffset = Vector3.new(0, 0, -3.2)
+	local hitboxSize = Vector3.new(3, 3, 3)
+	local hitboxOffset = Vector3.new(0, 0, -2.5)
 
-	local function performDummyM1()
-		if not model or not model.Parent or humanoid.Health <= 0 then return end
+	local function performAggressiveAttack()
+		if not model or not model.Parent then return end
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0 then return end
 
-		-- 1. Punch Animation on Right Shoulder
+		-- Arm punch swing
 		if rightShoulder and rightShoulder.Parent then
 			TweenService:Create(rightShoulder, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 				C0 = punchShoulderC0
@@ -389,25 +483,24 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 			end)
 		end
 
-		-- 2. Punch Wave VFX
-		local punchWave = Instance.new("Part")
-		punchWave.Name = "DummyPunchVFX"
-		punchWave.Size = Vector3.new(4, 5, 0.5)
-		punchWave.CFrame = hrp.CFrame * CFrame.new(hitboxOffset)
-		punchWave.Color = COLOR_YELLOW
-		punchWave.Material = Enum.Material.Neon
-		punchWave.Transparency = 0.5
-		punchWave.CanCollide = false
-		punchWave.Anchored = true
-		punchWave.Parent = Workspace
+		-- Slash / Punch visual
+		local slashVisual = Instance.new("Part")
+		slashVisual.Name = "AggressiveSlashVFX"
+		slashVisual.Size = Vector3.new(3, 3, 0.4)
+		slashVisual.CFrame = hrp.CFrame * CFrame.new(hitboxOffset)
+		slashVisual.Color = Color3.fromRGB(255, 80, 80)
+		slashVisual.Material = Enum.Material.Neon
+		slashVisual.Transparency = 0.4
+		slashVisual.CanCollide = false
+		slashVisual.Anchored = true
+		slashVisual.Parent = Workspace
 
-		TweenService:Create(punchWave, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		TweenService:Create(slashVisual, TweenInfo.new(0.20, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			Transparency = 1,
-			Size = Vector3.new(4.5, 5.2, 0.6)
+			Size = Vector3.new(3.6, 3.6, 0.5)
 		}):Play()
-		Debris:AddItem(punchWave, 0.25)
+		Debris:AddItem(slashVisual, 0.22)
 
-		-- 3. Sound
 		local sound = Instance.new("Sound")
 		sound.SoundId = "rbxasset://sounds/sword/swish.wav"
 		sound.Volume = 0.7
@@ -415,28 +508,43 @@ function DummyHandler.CreateNoobDummy(spawnCFrame: CFrame): Model
 		sound:Play()
 		Debris:AddItem(sound, 1)
 
-		-- 4. Hitbox Query & Damage Application (25 Physical Damage)
+		-- Query targets in 3x3x3 box in front
 		local hitboxCFrame = hrp.CFrame * CFrame.new(hitboxOffset)
 		local targets = HitboxEngine.GetTargetsInBox(model, hitboxCFrame, hitboxSize)
 
 		for _, targetChar in ipairs(targets) do
-			CombatHandler.ApplyDamage(model, targetChar, 25, "Physical", 11, 0.3)
+			CombatHandler.ApplyDamage(model, targetChar, 10, "Physical", 8, 0.25)
 		end
 	end
 
-	-- Run attack loop every 1.0s continuously
 	task.spawn(function()
 		while model and model.Parent do
 			task.wait(1.0)
 			if not model or not model.Parent then break end
-			if humanoid and humanoid.Health > 0 and not isRefreshing then
-				performDummyM1()
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				performAggressiveAttack()
 			end
 		end
 	end)
 
-	model.Parent = Workspace
 	return model
+end
+
+--[[
+    Clears all spawned testing dummies in Workspace.
+--]]
+function DummyHandler.ClearAllDummies()
+	for _, child in ipairs(Workspace:GetChildren()) do
+		if child:IsA("Model") and (child:GetAttribute("IsTestingDummy")
+			or child.Name == "NoobDummy"
+			or child.Name == "MovingDummy"
+			or child.Name == "TankDummy"
+			or child.Name == "AggressiveDummy"
+			or child.Name == "TestDummy") then
+			child:Destroy()
+		end
+	end
 end
 
 return DummyHandler

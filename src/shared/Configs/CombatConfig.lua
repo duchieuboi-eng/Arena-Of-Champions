@@ -43,8 +43,8 @@ local CombatConfig = {
 	-- Grot ultra-charges a heavy impact growing spiky vines in a line area.
 	-- Deals pulsing damage and heals Grot on hit.
 	-- Cooldown = 16.0s, StaminaCost = 0
-	-- 5-frame wind-up (0.80s total): Frames 1-4 (0.55s) player can spin/aim, Frame 5 (0.25s) rotation locked.
-	-- Zone lingers for 2.0s, pulsing every 0.25s (8 pulses):
+	-- 5-frame wind-up (0.95s total): Frames 1-4 (0.75s) player can spin/aim, Frame 5 (0.20s) rotation locked.
+	-- Zone lingers for 3.0s, pulsing every 0.5s (6 pulses):
 	-- Damage per pulse: math.ceil((Physical / 2) + Magic) = math.ceil(12.5 + 0) = 13 Physical DMG (reduced by target DEF)
 	-- Heal per pulse: if >= 1 enemy hit, heals Grot once by {Regen} (+2.5 HP)
 	GrotS1 = {
@@ -54,18 +54,18 @@ local CombatConfig = {
 		Formula = "math.ceil((Physical / 2) + Magic)",
 		StaminaCost = 0,
 		Cooldown = 16.0,
-		Windup = 0.80,
-		AimLockTime = 0.55,   -- Rotation locked after 0.55s (when entering Frame 5)
+		Windup = 0.95,
+		AimLockTime = 0.75,   -- Rotation locked after 0.75s (when entering Frame 5)
 		WindupFrames = {
-			{ Name = "Grot_S1frame1", Duration = 0.10, CanRotate = true },
+			{ Name = "Grot_S1frame1", Duration = 0.15, CanRotate = true },
 			{ Name = "Grot_S1frame2", Duration = 0.25, CanRotate = true },
-			{ Name = "Grot_S1frame3", Duration = 0.10, CanRotate = true },
-			{ Name = "Grot_S1frame4", Duration = 0.10, CanRotate = true },
-			{ Name = "Grot_S1frame5", Duration = 0.25, CanRotate = false },
+			{ Name = "Grot_S1frame3", Duration = 0.15, CanRotate = true },
+			{ Name = "Grot_S1frame4", Duration = 0.20, CanRotate = true },
+			{ Name = "Grot_S1frame5", Duration = 0.20, CanRotate = false },
 		},
-		Linger = 2.0,         -- Vine zone lingers for 2.0s
-		PulseInterval = 0.25, -- Pulses every 0.25s
-		TotalPulses = 8,      -- 2.0s / 0.25s = 8 pulses
+		Linger = 3.0,         -- Vine zone lingers for 3.0s
+		PulseInterval = 0.5,  -- Pulses every 0.5s
+		TotalPulses = 6,      -- 3.0s / 0.5s = 6 pulses
 		HealStat = "Regen",   -- Heals once per pulse by {Regen} (+2.5 HP) if >= 1 enemy hit
 		Hitstun = 0.2,
 		Knockback = 6,

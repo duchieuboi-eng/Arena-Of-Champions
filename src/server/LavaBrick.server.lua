@@ -37,6 +37,11 @@ lavaBrick.Touched:Connect(function(hitPart)
 	local player = Players:GetPlayerFromCharacter(character)
 	if not player then return end
 
+	-- Invincible cheat check
+	if character:GetAttribute("Invincible") == true or player:GetAttribute("Invincible") == true then
+		return
+	end
+
 	-- Debounce per player to avoid instant death in 1 frame
 	local currentTime = os.clock()
 	if touchDebounces[player] and (currentTime - touchDebounces[player]) < TOUCH_DEBOUNCE_TIME then

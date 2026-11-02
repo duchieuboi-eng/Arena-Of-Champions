@@ -19,8 +19,10 @@ local InputController = require(Controllers:WaitForChild("InputController"))
 local HUDController = require(Controllers:WaitForChild("HUDController"))
 local CombatController = require(Controllers:WaitForChild("CombatController"))
 local GrotAnimationController = require(Controllers:WaitForChild("GrotAnimationController"))
+local CMDController = require(Controllers:WaitForChild("CMDController"))
 
 -- Initialize all client controllers
+CMDController.Init()
 InputController.Init()
 HUDController.Init()
 CombatController.Init()

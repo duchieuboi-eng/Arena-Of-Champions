@@ -1,10 +1,12 @@
 --[[
     CombatHandler.lua
     Server-authoritative combat handler.
-    Validates attack and skill requests, tracks cooldowns per skill independently,
+    Validates attack and skill requests, tracks cooldowns per skill independently
+    (bypassed when player has NoCooldown cheat enabled),
     executes lingering hitboxes strictly in front of the player (negative local Z),
-    applies dynamic stat formulas with math.ceil() rounding, flat DEF damage mitigation,
-    and coordinates Grot M1 (0.10s linger) and Grot S1 "Vine" (5-frame windup, 2.0s pulse zone).
+    applies dynamic stat formulas with math.ceil() rounding, flat DEF damage mitigation
+    (bypassed / 0 damage when target has Invincible cheat enabled),
+    and coordinates Grot M1 (0.10s linger) and Grot S1 "Vine" (0.95s windup, 3.0s zone, 0.5s pulses).
 --]]
 
 local Workspace = game:GetService("Workspace")
@@ -51,7 +53,7 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 		return
 	end
 
-	if character:GetAttribute("IsHitstunned") or character:GetAttribute("IsAttacking") then
+	if character:GetAttribute("IsHitstunned") or character:GetAttribute("IsAttacking") or character:GetAttribute("IsCastingSkill") then
 		return
 	end
 
@@ -60,6 +62,7 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 		playerSkillCooldowns[player] = {}
 	end
 	local lastCooldown = playerSkillCooldowns[player][attackType] or 0
+	local hasNoCooldown = (player:GetAttribute("NoCooldown") == true) or (character:GetAttribute("NoCooldown") == true)
 
 	-- =========================================================================
 	-- 1. BLOCKY M1 ATTACK (1.5s Cooldown, 0 Stamina)
@@ -68,8 +71,8 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 		local attackData = CombatConfig.BlockyM1
 		if not attackData then return end
 
-		-- Check 1.5s cooldown (0.08s buffer for network latency)
-		if (currentTime - lastCooldown) < (attackData.Cooldown - 0.08) then
+		-- Check 1.5s cooldown (bypassed if NoCooldown cheat is active)
+		if not hasNoCooldown and (currentTime - lastCooldown) < (attackData.Cooldown - 0.08) then
 			return
 		end
 
@@ -106,8 +109,8 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 		local attackData = CombatConfig.GrotM1
 		if not attackData then return end
 
-		-- Check 2.0s cooldown (0.08s buffer for network latency)
-		if (currentTime - lastCooldown) < (attackData.Cooldown - 0.08) then
+		-- Check 2.0s cooldown (bypassed if NoCooldown cheat is active)
+		if not hasNoCooldown and (currentTime - lastCooldown) < (attackData.Cooldown - 0.08) then
 			return
 		end
 
@@ -212,42 +215,49 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 		end)
 
 	-- =========================================================================
-	-- 3. GROT SKILL 1 ("Vine" / E Key - 16.0s Cooldown, 5-Frame Windup, 2.0s Zone)
+	-- 3. GROT SKILL 1 ("Vine" / E Key - 16.0s Cooldown, 0.95s Windup, 3.0s Zone)
 	-- =========================================================================
 	elseif attackType == "GrotS1" and charId == "Grot" then
 		local skillData = CombatConfig.GrotS1
 		if not skillData then return end
 
-		-- Check 16.0s cooldown
-		if (currentTime - lastCooldown) < (skillData.Cooldown - 0.08) then
+		-- Check 16.0s cooldown (bypassed if NoCooldown cheat is active)
+		if not hasNoCooldown and (currentTime - lastCooldown) < (skillData.Cooldown - 0.08) then
 			return
 		end
 
 		playerSkillCooldowns[player][attackType] = currentTime
 		character:SetAttribute("IsAttacking", true)
+		character:SetAttribute("IsCastingSkill", true)
 
-		-- 1. Set movement speed to 0 during entire 5-frame wind-up (0.80s)
+		-- 1. Lock movement speed to 0 for full 0.95s wind-up
 		local normalWalkSpeed = character:GetAttribute("Walk") or 14
 		humanoid.WalkSpeed = 0
 
 		-- 2. Trigger 5-frame visuals across all clients
 		visualRemote:FireAllClients(player, "GrotS1", 1)
 
-		-- 3. Frames 1 to 4 (0.55s): Player can spin/aim. At 0.55s, entering Frame 5: lock rotation!
-		task.delay(skillData.AimLockTime or 0.55, function()
+		-- 3. Frames 1 to 4 (0.00s to 0.75s): Player can spin/aim. At 0.75s, entering Frame 5: lock rotation!
+		task.delay(skillData.AimLockTime or 0.75, function()
+			if character and character.Parent then
+				character:SetAttribute("RotationLocked", true)
+			end
 			if humanoid and humanoid.Parent then
 				humanoid.AutoRotate = false
 			end
 		end)
 
-		-- 4. At 0.80s: Frame 5 finishes! Unlock movement/rotation, establish 2.0s lingering zone
-		task.delay(skillData.Windup or 0.80, function()
+		-- 4. At 0.95s: Frame 5 finishes! Unlock movement/rotation, establish 3.0s lingering zone
+		task.delay(skillData.Windup or 0.95, function()
 			if not character or not character.Parent or not rootPart then return end
 
 			-- Unlock movement and rotation immediately
+			character:SetAttribute("IsCastingSkill", false)
+			character:SetAttribute("RotationLocked", false)
+			character:SetAttribute("IsAttacking", false)
+
 			humanoid.WalkSpeed = normalWalkSpeed
 			humanoid.AutoRotate = true
-			character:SetAttribute("IsAttacking", false)
 
 			-- Capture final orientation where Grot faced at Frame 5
 			local finalFacingCFrame = rootPart.CFrame
@@ -255,20 +265,21 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 			local zoneCFrame = finalFacingCFrame * s1HitboxData.Offset
 			local hitboxSize = s1HitboxData.Size
 
-			-- Spawn lingering spiky visual in world
-			local vineVisual = GrotRigFactory.CreateSkillAreaVisual(5)
-			if vineVisual:IsA("Model") and vineVisual.PrimaryPart then
-				vineVisual:PivotTo(zoneCFrame)
-			elseif vineVisual:IsA("BasePart") then
-				vineVisual.CFrame = zoneCFrame
+			-- Spawn Frame 5 real spiky Skill area model anchored in world for 3.0s
+			local frame5Model, frame5Offsets = GrotRigFactory.SpawnSkillAreaForFrame(5, character)
+			if frame5Model and frame5Offsets then
+				for part, relCF in pairs(frame5Offsets) do
+					if part and part.Parent then
+						part.CFrame = finalFacingCFrame * relCF
+					end
+				end
+				Debris:AddItem(frame5Model, skillData.Linger or 3.0)
 			end
-			vineVisual.Parent = Workspace
-			Debris:AddItem(vineVisual, skillData.Linger or 2.0)
 
-			-- Pulse Logic: Every 0.25s for 2.0s = 8 pulses total
+			-- Pulse Logic: Every 0.5s for 3.0s = 6 pulses total
 			task.spawn(function()
-				local totalPulses = skillData.TotalPulses or 8
-				local pulseInterval = skillData.PulseInterval or 0.25
+				local totalPulses = skillData.TotalPulses or 6
+				local pulseInterval = skillData.PulseInterval or 0.5
 
 				for pulseIndex = 1, totalPulses do
 					if not character or not character.Parent then break end
@@ -286,7 +297,7 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 					pulseDebug.CanQuery = false
 					pulseDebug.Anchored = true
 					pulseDebug.Parent = Workspace
-					Debris:AddItem(pulseDebug, 0.18)
+					Debris:AddItem(pulseDebug, 0.20)
 
 					-- Query enemies inside the vine zone
 					local targets = HitboxEngine.GetTargetsInBox(character, zoneCFrame, hitboxSize)
@@ -318,8 +329,8 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 					task.wait(pulseInterval)
 				end
 
-				if vineVisual and vineVisual.Parent then
-					vineVisual:Destroy()
+				if frame5Model and frame5Model.Parent then
+					frame5Model:Destroy()
 				end
 			end)
 		end)
@@ -329,6 +340,7 @@ end
 --[[
     Applies server-authoritative damage, flat DEF mitigation, knockback, and hitstun.
     Formula: FinalDamage = math.max(0, math.ceil(RawDamage) - TargetDEF). TRUE damage bypasses DEF.
+    If target character has Invincible == true, all incoming damage deals 0!
 --]]
 function CombatHandler.ApplyDamage(attacker: Model, target: Model, rawDamage: number, damageType: string, knockback: number, hitstun: number)
 	local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
@@ -336,6 +348,12 @@ function CombatHandler.ApplyDamage(attacker: Model, target: Model, rawDamage: nu
 	local attackerRoot = attacker:FindFirstChild("HumanoidRootPart") or attacker:FindFirstChild("Grot_hitbox") :: BasePart
 
 	if not targetHumanoid or targetHumanoid.Health <= 0 then return end
+
+	-- Invincible Cheat Check: deals 0 damage
+	local targetPlayer = Players:GetPlayerFromCharacter(target)
+	if target:GetAttribute("Invincible") == true or (targetPlayer and targetPlayer:GetAttribute("Invincible") == true) then
+		return
+	end
 
 	local roundedDamage = math.ceil(rawDamage)
 	local finalDamage = roundedDamage

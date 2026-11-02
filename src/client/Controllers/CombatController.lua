@@ -49,26 +49,32 @@ function CombatController.Init()
 			end
 
 			local now = os.clock()
+			local hasNoCooldown = (Players.LocalPlayer:GetAttribute("NoCooldown") == true)
+				or (character and character:GetAttribute("NoCooldown") == true)
 
 			-- 1. Blocky M1 Attack (1.5s CD)
 			if charId == "Blocky" then
-				if (now - lastAttackTime) < BLOCKY_COOLDOWN then
+				if not hasNoCooldown and (now - lastAttackTime) < BLOCKY_COOLDOWN then
 					return
 				end
 				lastAttackTime = now
 
-				HUDController.TriggerSkillCooldown("M1", BLOCKY_COOLDOWN)
+				if not hasNoCooldown then
+					HUDController.TriggerSkillCooldown("M1", BLOCKY_COOLDOWN)
+				end
 				CombatController.RequestAttack("BlockyM1")
 
 			-- 2. Grot M1 Attack (True 2.0s CD, 0 Stamina lockout)
 			elseif charId == "Grot" then
-				if (now - lastAttackTime) < GROT_COOLDOWN then
+				if not hasNoCooldown and (now - lastAttackTime) < GROT_COOLDOWN then
 					return
 				end
 				lastAttackTime = now
 
 				-- Start cooldown sweep immediately at the moment MB1 is pressed
-				HUDController.TriggerSkillCooldown("M1", GROT_COOLDOWN)
+				if not hasNoCooldown then
+					HUDController.TriggerSkillCooldown("M1", GROT_COOLDOWN)
+				end
 				CombatController.RequestAttack("GrotM1")
 			end
 		end
@@ -97,13 +103,17 @@ function CombatController.HandleSkill1Input()
 	end
 
 	local now = os.clock()
-	if (now - lastS1Time) < GROT_S1_COOLDOWN then
+	local hasNoCooldown = (Players.LocalPlayer:GetAttribute("NoCooldown") == true)
+		or (character and character:GetAttribute("NoCooldown") == true)
+	if not hasNoCooldown and (now - lastS1Time) < GROT_S1_COOLDOWN then
 		return
 	end
 	lastS1Time = now
 
-	-- Trigger HUD cooldown sweep for [E] slot immediately (16.0s)
-	HUDController.TriggerSkillCooldown("E", GROT_S1_COOLDOWN)
+	-- Trigger HUD cooldown sweep for [E] slot immediately (16.0s) unless NoCooldown cheat is active
+	if not hasNoCooldown then
+		HUDController.TriggerSkillCooldown("E", GROT_S1_COOLDOWN)
+	end
 	CombatController.RequestAttack("GrotS1")
 end
 

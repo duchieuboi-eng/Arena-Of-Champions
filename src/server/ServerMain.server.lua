@@ -13,6 +13,7 @@ local CharacterHandler = require(ServerScriptService.Handlers.CharacterHandler)
 local CombatHandler = require(ServerScriptService.Handlers.CombatHandler)
 local DummyHandler = require(ServerScriptService.Handlers.DummyHandler)
 local MorphStandHandler = require(ServerScriptService.Handlers.MorphStandHandler)
+local CMDHandler = require(ServerScriptService.Handlers.CMDHandler)
 
 -- 1. Organize Grot reference models from Workspace into ReplicatedStorage.GrotAssets
 GrotRigFactory.InitAssets()
@@ -22,5 +23,6 @@ CharacterHandler.Init()
 CombatHandler.Init()
 DummyHandler.Init()
 MorphStandHandler.Init()
+CMDHandler.Init()
 
 print("[ArenaOfChampions] Server initialized successfully with Grot & Blocky morphs, 11-stat system, and testing dummy spawner.")

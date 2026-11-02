@@ -264,12 +264,152 @@ function GrotRigFactory.ExtractS1HitboxData(): { Offset: CFrame, Size: Vector3 }
 	return cachedS1HitboxData
 end
 
+-- Cached frame-specific Skill area part offset tables
+local cachedSkillAreaFrames = {}
+
+--[[
+    Extracts the REAL "Skill area" model data inside Grot_S1frame1..5 (or Grot["Skill area"]).
+    Computes exact relative CFrames for all BasePart descendants relative to frame Grot_hitbox.
+--]]
+function GrotRigFactory.ExtractSkillAreaFrameData(frameIndex: number)
+	if cachedSkillAreaFrames[frameIndex] then
+		return cachedSkillAreaFrames[frameIndex]
+	end
+
+	local folder = ReplicatedStorage:FindFirstChild("GrotAssets") or Workspace:FindFirstChild("Grot") or Workspace
+	local frameModel = folder:FindFirstChild("Grot_S1frame" .. tostring(frameIndex))
+	if not frameModel then
+		local wsGrot = Workspace:FindFirstChild("Grot")
+		if wsGrot then
+			frameModel = wsGrot:FindFirstChild("Grot_S1frame" .. tostring(frameIndex))
+		end
+	end
+
+	local skillAreaModel = frameModel and frameModel:FindFirstChild("Skill area", true)
+	if not skillAreaModel then
+		skillAreaModel = folder:FindFirstChild("Skill area")
+		if not skillAreaModel then
+			local wsGrot = Workspace:FindFirstChild("Grot")
+			if wsGrot then
+				skillAreaModel = wsGrot:FindFirstChild("Skill area")
+			end
+		end
+	end
+
+	if not skillAreaModel then
+		return nil
+	end
+
+	local frameGrotHitbox = frameModel and frameModel:FindFirstChild("Grot_hitbox", true) :: BasePart?
+	if not frameGrotHitbox then
+		frameGrotHitbox = frameModel and frameModel:FindFirstChild("HumanoidRootPart", true) :: BasePart?
+	end
+	local refCFrame = frameGrotHitbox and frameGrotHitbox.CFrame or skillAreaModel:GetPivot()
+
+	local partsData = {}
+	for _, desc in ipairs(skillAreaModel:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			local relCF = refCFrame:ToObjectSpace(desc.CFrame)
+			table.insert(partsData, {
+				Name = desc.Name,
+				Template = desc,
+				RelCFrame = relCF,
+				Size = desc.Size,
+				Color = desc.Color,
+				Material = desc.Material,
+				Transparency = desc.Transparency,
+			})
+		end
+	end
+
+	cachedSkillAreaFrames[frameIndex] = {
+		Model = skillAreaModel,
+		PartsData = partsData,
+		RefCFrame = refCFrame,
+	}
+	return cachedSkillAreaFrames[frameIndex]
+end
+
+--[[
+    Spawns the REAL "Skill area" model for a specific frame (1..5),
+    positioning each BasePart descendant in front of Grot along HumanoidRootPart.LookVector.
+    Returns the spawned Model and a table of part relative offsets for live spin/aim tracking.
+--]]
+function GrotRigFactory.SpawnSkillAreaForFrame(frameIndex: number, character: Model): (Model?, { [BasePart]: CFrame }?)
+	local frameData = GrotRigFactory.ExtractSkillAreaFrameData(frameIndex)
+	local hrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local grotHitbox = character:FindFirstChild("Grot_hitbox") :: BasePart? or hrp
+	if not hrp or not grotHitbox then return nil, nil end
+
+	if not frameData or not frameData.Model or #frameData.PartsData == 0 then
+		-- Fallback to cloning standalone Skill area if frame model wasn't populated
+		local folder = ReplicatedStorage:FindFirstChild("GrotAssets") or Workspace:FindFirstChild("Grot") or Workspace
+		local fallbackModel = folder:FindFirstChild("Skill area")
+		if fallbackModel and fallbackModel:IsA("Model") then
+			local clone = fallbackModel:Clone()
+			clone.Name = "SkillArea_Frame" .. tostring(frameIndex)
+			local partOffsets = {}
+			local refCF = fallbackModel:GetPivot()
+			for _, p in ipairs(clone:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.Anchored = true
+					p.CanCollide = false
+					p.CanTouch = false
+					p.CanQuery = false
+					local rel = refCF:ToObjectSpace(p.CFrame)
+					-- Account for Grot facing
+					local forwardRel = CFrame.new(rel.X, rel.Y, -math.abs(rel.Z))
+					partOffsets[p] = forwardRel
+					p.CFrame = hrp.CFrame * forwardRel
+				end
+			end
+			clone.Parent = Workspace
+			return clone, partOffsets
+		end
+		return nil, nil
+	end
+
+	local clone = frameData.Model:Clone()
+	clone.Name = "SkillArea_Frame" .. tostring(frameIndex)
+
+	-- Check forward orientation: ensure visual extends in front of HumanoidRootPart.LookVector
+	local needsFlip = false
+	if #frameData.PartsData > 0 then
+		local sampleRel = frameData.PartsData[1].RelCFrame
+		local samplePos = (grotHitbox.CFrame * sampleRel).Position
+		if (samplePos - hrp.Position):Dot(hrp.CFrame.LookVector) < 0 then
+			needsFlip = true
+		end
+	end
+
+	local partOffsets = {}
+	for _, partInfo in ipairs(frameData.PartsData) do
+		local partInstance = clone:FindFirstChild(partInfo.Name, true) :: BasePart?
+		if partInstance and partInstance:IsA("BasePart") then
+			partInstance.Anchored = true
+			partInstance.CanCollide = false
+			partInstance.CanTouch = false
+			partInstance.CanQuery = false
+
+			local finalRel = partInfo.RelCFrame
+			if needsFlip then
+				finalRel = CFrame.Angles(0, math.pi, 0) * finalRel
+			end
+			partOffsets[partInstance] = finalRel
+			partInstance.CFrame = grotHitbox.CFrame * finalRel
+		end
+	end
+
+	clone.Parent = Workspace
+	return clone, partOffsets
+end
+
 --[[
     Creates or retrieves the Skill area vine visual for Grot's S1 skill.
     Can extract frame-specific visual stage from Grot_S1frameX or base "Skill area".
 --]]
 function GrotRigFactory.CreateSkillAreaVisual(frameIndex: number?): Instance
-	local folder = ReplicatedStorage:FindFirstChild("GrotAssets") or Workspace
+	local folder = ReplicatedStorage:FindFirstChild("GrotAssets") or Workspace:FindFirstChild("Grot") or Workspace
 
 	local targetVisual: Instance? = nil
 	if frameIndex then
@@ -303,37 +443,7 @@ function GrotRigFactory.CreateSkillAreaVisual(frameIndex: number?): Instance
 		return clone
 	end
 
-	-- Procedural fallback spiky vine line visual
-	local visualModel = Instance.new("Model")
-	visualModel.Name = "SkillAreaVisual_Procedural"
-
-	local stem = Instance.new("Part")
-	stem.Name = "VineStem"
-	stem.Size = Vector3.new(4, 1.2, 16)
-	stem.Color = Color3.fromRGB(45, 95, 38)
-	stem.Material = Enum.Material.Wood
-	stem.Anchored = true
-	stem.CanCollide = false
-	stem.CanTouch = false
-	stem.CanQuery = false
-	stem.Parent = visualModel
-
-	for i = -7, 7, 2.5 do
-		local thorn = Instance.new("Part")
-		thorn.Name = "Thorn"
-		thorn.Size = Vector3.new(1.2, 2.8, 1.2)
-		thorn.CFrame = stem.CFrame * CFrame.new((i % 2 == 0 and 1.8 or -1.8), 1.4, i) * CFrame.Angles(0, 0, (i % 2 == 0 and 0.35 or -0.35))
-		thorn.Color = Color3.fromRGB(65, 175, 55)
-		thorn.Material = Enum.Material.Neon
-		thorn.Anchored = true
-		thorn.CanCollide = false
-		thorn.CanTouch = false
-		thorn.CanQuery = false
-		thorn.Parent = visualModel
-	end
-
-	visualModel.PrimaryPart = stem
-	return visualModel
+	return Instance.new("Model")
 end
 
 --[[
@@ -564,6 +674,14 @@ function GrotRigFactory.MorphPlayer(player: Player): Model
 	end
 
 	player:SetAttribute("SelectedCharacterId", "Grot")
+
+	if player:GetAttribute("Invincible") then
+		grotModel:SetAttribute("Invincible", true)
+	end
+	if player:GetAttribute("NoCooldown") then
+		grotModel:SetAttribute("NoCooldown", true)
+	end
+
 	player.Character = grotModel
 
 	local cameraResetRemote = RemoteManager.GetRemoteEvent("ResetCameraSubject")

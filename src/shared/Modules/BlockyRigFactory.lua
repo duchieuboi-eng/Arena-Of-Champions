@@ -281,6 +281,13 @@ function BlockyRigFactory.MorphPlayer(player: Player): Model
 	-- Set persistent attribute on the Player object
 	player:SetAttribute("SelectedCharacterId", "Blocky")
 
+	if player:GetAttribute("Invincible") then
+		blockyModel:SetAttribute("Invincible", true)
+	end
+	if player:GetAttribute("NoCooldown") then
+		blockyModel:SetAttribute("NoCooldown", true)
+	end
+
 	-- Assign character
 	player.Character = blockyModel
 

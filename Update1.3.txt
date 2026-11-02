@@ -1,0 +1,76 @@
+Please fix the Shift-Lock keybind, Grot sprint speed, the Grot "VINE" (E) skill visuals/spinning/timings, and add the Forsaken / Item Asylum style Testing CMD Panel:
+
+### 1. FIX CTRL SHIFT-LOCK (UNBIND SHIFT COMPLETELY)
+- **Bug:** Pressing `LeftShift` still triggers Roblox's built-in Shift-Lock at the same time as Sprint, while `LeftControl` does not toggle Shift-Lock reliably.
+- **How to fix:**
+  1. Disable Roblox's default Shift-Lock keybind completely (`StarterPlayer.EnableMouseLockOption = false` on startup or unbind `"MouseLockSwitchAction"` from `ContextActionService` after `PlayerModule` loads).
+  2. Implement a dedicated custom Shift-Lock controller in `InputController.lua` toggled strictly by **`LeftControl`** and **`RightControl`**:
+     - When Shift-Lock is toggled ON: set `UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter`, apply a shoulder camera offset (`humanoid.CameraOffset = Vector3.new(1.75, 0, 0)`), and on `RunService.RenderStepped`, rotate the character's root part (`HumanoidRootPart` / `Grot_hitbox`) horizontally to face the camera's flat `LookVector` (UNLESS the character is in the rotation-locked Frame 5 of Grot's Vine skill).
+     - When Shift-Lock is toggled OFF: restore `UserInputService.MouseBehavior = Enum.MouseBehavior.Default` and `humanoid.CameraOffset = Vector3.zero`.
+  3. Ensure `LeftShift` ONLY controls Sprint and never toggles Shift-Lock.
+
+---
+
+### 2. SLOW DOWN GROT SPRINT ANIMATION BY 2.5x
+- Grot's walk animation (`Grot_walk1` <-> `Grot_walk2`) is great—do not change its speed.
+- Grot's sprint animation (`Grot_sprint1` <-> `Grot_sprint2`) is currently 2.5x too fast for a heavy tank golem. Multiply the per-frame tween duration of the sprint loop in `GrotAnimationController.lua` by **2.5x** (e.g., from `0.18s` to `0.45s` per step) with smooth `Sine` / `Quad` InOut easing so each sprint stride feels heavy and deliberate.
+
+---
+
+### 3. FIX GROT "VINE" (`E` SKILL): REAL `Skill area` MODELS, SPINNING IN FRAMES 1–4, 0.95s WIND-UP & 3.0s ZONE
+1. **Use the REAL `"Skill area"` Models Inside `Grot_S1frame1..5` (NO Fake Green Part Fallback!):**
+   - **Bug:** Previously, the code spawned a plain fallback green block centered under Grot's feet instead of the actual 3-lane grassy/spiky `"Skill area"` models built inside `Grot_S1frame1` through `Grot_S1frame5` (and `Workspace.Grot["Skill area"]`).
+   - **How to extract & position `"Skill area"` accurately:**
+     - Every frame model (`Grot_S1frame1`, `Grot_S1frame2`, `Grot_S1frame3`, `Grot_S1frame4`, `Grot_S1frame5`) has its own child `Model` named `"Skill area"` containing the 3 grass strips and rock spikes.
+     - For each frame `1..5`, locate its `"Skill area"` child model and its `"Grot_hitbox"` part. For every `BasePart` descendant inside `"Skill area"`, store its exact relative CFrame offset from that frame's `"Grot_hitbox"` (`local relCF = frameGrotHitbox.CFrame:ToObjectSpace(part.CFrame)`). Note: account for the `+Z` vs `-Z` forward orientation of `Grot_hitbox` so the `"Skill area"` extends **in front** of Grot (`hrp.CFrame.LookVector`), never behind or centered under Grot.
+     - Never destroy `"Skill area"` from `Grot_S1frame1..5` in `ReplicatedStorage.GrotAssets`—only strip `"Skill area"` when cloning `Grot_model` for the playable character body.
+
+2. **Updated 5-Frame Wind-Up Timeline (`0.95s` Total) & Live Spinning (`Frames 1–4`):**
+   - Total wind-up is **`0.95s`** across the 5 frames:
+     - **Frame 1 (`Grot_S1frame1`):** `0.15s` (0.00s -> 0.15s)
+     - **Frame 2 (`Grot_S1frame2`):** `0.25s` (0.15s -> 0.40s)
+     - **Frame 3 (`Grot_S1frame3`):** `0.15s` (0.40s -> 0.55s)
+     - **Frame 4 (`Grot_S1frame4`):** `0.20s` (0.55s -> 0.75s)
+     - **Frame 5 (`Grot_S1frame5`):** `0.20s` (0.75s -> 0.95s)
+   - **Movement Lock (`0.00s` to `0.95s`):**
+     - Set an attribute `character:SetAttribute("IsCastingSkill", true)` for the full `0.95s` wind-up.
+     - In `CharacterHandler.OnUpdate` and `SetSprintState`, check `if character:GetAttribute("IsCastingSkill") then humanoid.WalkSpeed = 0 return end` so the server heartbeat loop NEVER overwrites `WalkSpeed = 0` back to `14` or `18` during the `0.95s` wind-up!
+   - **Spinning / Aiming Allowed During Frames 1 to 4 (`0.00s` to `0.75s`):**
+     - During Frames 1, 2, 3, and 4 (`0.75s` total), keep `humanoid.AutoRotate = true` and allow the player to **spin/rotate Grot 360° freely** with their camera / Shift-Lock / movement keys while standing at `WalkSpeed = 0`.
+     - As each frame `1..4` plays, spawn that frame's actual `"Skill area"` model in front of Grot and update its parts every frame (`RenderStepped` / `Heartbeat`) to follow Grot's live rotation so the growing vine lanes rotate with Grot as he aims!
+   - **Rotation Lock on Frame 5 (`0.75s` to `0.95s`):**
+     - At `0.75s` (entering Frame 5 for `0.20s`), set `character:SetAttribute("RotationLocked", true)`, set `humanoid.AutoRotate = false`, and lock Grot's root orientation to the exact direction he was facing at `0.75s`. Display Frame 5's spiky `"Skill area"` locked at that orientation.
+
+3. **Active Lingering Vine Zone (`3.0s` Duration, `0.5s` Tick Rate):**
+   - At **`0.95s`** (right when Frame 5 finishes):
+     - Clear `IsCastingSkill` and `RotationLocked`, restore `humanoid.WalkSpeed = 14` (or `18` if holding Shift) and `humanoid.AutoRotate = true` so Grot can walk, sprint, spin, and use M1 freely.
+     - Keep Frame 5's spiky `"Skill area"` model (or the standalone `Grot["Skill area"]` model with spikes) anchored on the ground at that locked Frame 5 position for **`3.0s`**.
+     - Align `Grot_S1hitbox` (using its offset from `Grot_S1interhitbox`) directly over the anchored `"Skill area"` vine lanes.
+     - **Tick every `0.5s` for `3.0s` (6 pulses total):**
+       - Every `0.5s`, flash the translucent red debug hitbox (`Grot_S1hitbox` size/CFrame) and hit all enemies inside.
+       - Deal `math.ceil((Physical / 2) + Magic)` damage (`13` damage for Grot, reduced by target's flat `DEF`).
+       - If at least 1 enemy is hit on that `0.5s` pulse, heal Grot **once** by `{Regen}` (`+2.5 HP`, capped at `MaxHP`).
+       - After `3.0s`, destroy the anchored `"Skill area"` visual and hitbox.
+
+---
+
+### 4. FORSAKEN / ITEM ASYLUM STYLE TESTING CMD PANEL (`~` KEY & `[ CMD ]` BUTTON)
+- Create a sleek, dark glassmorphic Admin/Testing Command Panel (`CMDController.lua` on client + server handler) inspired by *Forsaken* and *Item Asylum*:
+  1. **How to Open/Close:**
+     - Press **`~` (`Enum.KeyCode.Backquote`)** on the keyboard OR click a sleek **`[ CMD ]`** toggle button in the top-right corner of the screen.
+  2. **Cheats / Toggles Section:**
+     - **No Cooldown (`ON / OFF`):** When ON, sets `NoCooldown = true` on the player so M1 and `E` ("Vine") have `0s` cooldown and can be spammed instantly.
+     - **Invincible (`ON / OFF`):** When ON, sets `Invincible = true` on the player's character so all incoming damage (dummies, lava brick, attacks) deals `0` damage.
+  3. **Live Stat Editor Section:**
+     - Allows selecting a target player (defaults to yourself) and typing/setting any stat (`HP`, `Regen`, `Stamina`, `Recovery`, `Walk`, `Sprint`, `Jump`, `Physical`, `Magic`, `DEF`, `Crit`, `CritDMG`) with an **[ Apply ]** button that immediately updates the character's server attributes, `Humanoid` properties (`MaxHealth`, `Health`, `WalkSpeed`, `JumpPower`), and HUD stat drawer.
+  4. **Dummy Spawner Section (3 Specific Dummy Types + `[ Clear Dummies ]`):**
+     - **[ Spawn Moving Dummy ] (`500 HP`, `0 DEF`, `12 WalkSpeed`):**
+       - Spawns in front of the player. The spawn position is the **center** of its circle.
+       - First, it runs straight forward `25 studs` at `12 WalkSpeed` to reach the circle's perimeter ($R = 25$ studs).
+       - Then, it continuously runs in a **circle of radius 25 studs** around its spawn center point forever at `12 WalkSpeed` (`pos = center + Vector3.new(25 * math.cos(angle), 0, 25 * math.sin(angle))`, facing the tangent direction of movement), with **no walking limb animation** (stiff moving statue).
+     - **[ Spawn Tank Dummy ] (`9999 HP`, `0 DEF`):**
+       - Spawns a stationary Noob avatar statue with `9999 / 9999 HP` and `0 DEF`.
+     - **[ Spawn Aggressive Dummy ] (`250 HP`, `0 DEF`, `10 DMG` every `1.0s`):**
+       - Spawns a stationary Noob dummy with `250 / 250 HP` and `0 DEF`.
+       - Every `1.0s`, it attacks like Blocky M1 using a **`3x3x3` hitbox** directly in front of it (`hrp.CFrame * CFrame.new(0, 0, -2.5)`) with a slash/punch visual that deals **`10` Physical damage** (reduced by the player's `DEF`, or `0` if Invincible is ON). Ensure its hitbox detection properly hits morphed characters like `Grot` (`Grot_hitbox` / `HumanoidRootPart`), `Blocky`, and `Unmorphed` players!
+     - **[ Clear All Dummies ]:** Destroys all spawned testing dummies in Workspace.

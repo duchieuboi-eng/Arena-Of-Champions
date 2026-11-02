@@ -63,6 +63,12 @@ function CharacterHandler.OnCharacterSpawned(player: Player, character: Model)
 
 	-- If this character is already a custom rig (Blocky or Grot), attributes are configured by factory
 	if character:GetAttribute("IsBlockyRig") or character:GetAttribute("IsGrotRig") then
+		if player:GetAttribute("Invincible") then
+			character:SetAttribute("Invincible", true)
+		end
+		if player:GetAttribute("NoCooldown") then
+			character:SetAttribute("NoCooldown", true)
+		end
 		return
 	end
 
@@ -100,6 +106,13 @@ function CharacterHandler.OnCharacterSpawned(player: Player, character: Model)
 	humanoid.UseJumpPower = true
 	humanoid.JumpPower = config.Jump or 100
 
+	if player:GetAttribute("Invincible") then
+		character:SetAttribute("Invincible", true)
+	end
+	if player:GetAttribute("NoCooldown") then
+		character:SetAttribute("NoCooldown", true)
+	end
+
 	-- Fire Camera reset remote to guarantee client camera binds to new Humanoid
 	cameraResetRemote:FireClient(player, character)
 
@@ -133,6 +146,11 @@ function CharacterHandler.SetSprintState(player: Player, isSprinting: boolean)
 	local stamina = character:GetAttribute("Stamina") or 0
 	local wasSprinting = character:GetAttribute("IsSprinting") or false
 
+	if character:GetAttribute("IsCastingSkill") then
+		humanoid.WalkSpeed = 0
+		return
+	end
+
 	if isSprinting and stamina > 5 then
 		character:SetAttribute("IsSprinting", true)
 		character:SetAttribute("LastSprintStopTime", nil) -- reset delay timer when sprinting resumes
@@ -155,6 +173,12 @@ function CharacterHandler.OnUpdate(deltaTime: number)
 
 		local humanoid = character:FindFirstChild("Humanoid") :: Humanoid
 		if not humanoid or humanoid.Health <= 0 then continue end
+
+		-- Never overwrite WalkSpeed = 0 during skill windup
+		if character:GetAttribute("IsCastingSkill") then
+			humanoid.WalkSpeed = 0
+			continue
+		end
 
 		local maxHealth = character:GetAttribute("MaxHealth") or 100
 		local currentHealth = humanoid.Health
