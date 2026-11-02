@@ -285,13 +285,19 @@ function GrotRigFactory.ExtractSkillAreaFrameData(frameIndex: number)
 		end
 	end
 
-	local skillAreaModel = frameModel and frameModel:FindFirstChild("Skill area", true)
+	local skillAreaModel = frameModel and frameModel:FindFirstChild("Skill area", true) :: Model?
 	if not skillAreaModel then
-		skillAreaModel = folder:FindFirstChild("Skill area")
+		local f5 = folder:FindFirstChild("Grot_S1frame5")
+		if f5 then
+			skillAreaModel = f5:FindFirstChild("Skill area", true) :: Model?
+		end
+	end
+	if not skillAreaModel then
+		skillAreaModel = folder:FindFirstChild("Skill area") :: Model?
 		if not skillAreaModel then
 			local wsGrot = Workspace:FindFirstChild("Grot")
 			if wsGrot then
-				skillAreaModel = wsGrot:FindFirstChild("Skill area")
+				skillAreaModel = wsGrot:FindFirstChild("Skill area") :: Model?
 			end
 		end
 	end
@@ -326,63 +332,34 @@ function GrotRigFactory.ExtractSkillAreaFrameData(frameIndex: number)
 		Model = skillAreaModel,
 		PartsData = partsData,
 		RefCFrame = refCFrame,
+		FrameHitbox = frameGrotHitbox,
 	}
 	return cachedSkillAreaFrames[frameIndex]
 end
 
 --[[
     Spawns the REAL "Skill area" model for a specific frame (1..5),
-    positioning each BasePart descendant in front of Grot along HumanoidRootPart.LookVector.
-    Returns the spawned Model and a table of part relative offsets for live spin/aim tracking.
+    positioning each BasePart descendant flat on the floor in front of Grot:
+    Compute each part's CFrame relative to Grot_hitbox in source model (relCF = frameHitbox.CFrame:ToObjectSpace(part.CFrame))
+    and position cloned visual relative to Grot's live Grot_hitbox in the world (liveHitbox.CFrame * relCF).
+    Returns the spawned Model and part relative offsets for live spin/aim tracking.
 --]]
 function GrotRigFactory.SpawnSkillAreaForFrame(frameIndex: number, character: Model): (Model?, { [BasePart]: CFrame }?)
 	local frameData = GrotRigFactory.ExtractSkillAreaFrameData(frameIndex)
-	local hrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local grotHitbox = character:FindFirstChild("Grot_hitbox") :: BasePart? or hrp
-	if not hrp or not grotHitbox then return nil, nil end
+	local liveHitbox = character:FindFirstChild("Grot_hitbox") :: BasePart?
+		or character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		or character.PrimaryPart
+	if not liveHitbox then return nil, nil end
 
 	if not frameData or not frameData.Model or #frameData.PartsData == 0 then
-		-- Fallback to cloning standalone Skill area if frame model wasn't populated
-		local folder = ReplicatedStorage:FindFirstChild("GrotAssets") or Workspace:FindFirstChild("Grot") or Workspace
-		local fallbackModel = folder:FindFirstChild("Skill area")
-		if fallbackModel and fallbackModel:IsA("Model") then
-			local clone = fallbackModel:Clone()
-			clone.Name = "SkillArea_Frame" .. tostring(frameIndex)
-			local partOffsets = {}
-			local refCF = fallbackModel:GetPivot()
-			for _, p in ipairs(clone:GetDescendants()) do
-				if p:IsA("BasePart") then
-					p.Anchored = true
-					p.CanCollide = false
-					p.CanTouch = false
-					p.CanQuery = false
-					local rel = refCF:ToObjectSpace(p.CFrame)
-					-- Account for Grot facing
-					local forwardRel = CFrame.new(rel.X, rel.Y, -math.abs(rel.Z))
-					partOffsets[p] = forwardRel
-					p.CFrame = hrp.CFrame * forwardRel
-				end
-			end
-			clone.Parent = Workspace
-			return clone, partOffsets
-		end
 		return nil, nil
 	end
 
 	local clone = frameData.Model:Clone()
 	clone.Name = "SkillArea_Frame" .. tostring(frameIndex)
 
-	-- Check forward orientation: ensure visual extends in front of HumanoidRootPart.LookVector
-	local needsFlip = false
-	if #frameData.PartsData > 0 then
-		local sampleRel = frameData.PartsData[1].RelCFrame
-		local samplePos = (grotHitbox.CFrame * sampleRel).Position
-		if (samplePos - hrp.Position):Dot(hrp.CFrame.LookVector) < 0 then
-			needsFlip = true
-		end
-	end
+	local partOffsets: { [BasePart]: CFrame } = {}
 
-	local partOffsets = {}
 	for _, partInfo in ipairs(frameData.PartsData) do
 		local partInstance = clone:FindFirstChild(partInfo.Name, true) :: BasePart?
 		if partInstance and partInstance:IsA("BasePart") then
@@ -391,12 +368,9 @@ function GrotRigFactory.SpawnSkillAreaForFrame(frameIndex: number, character: Mo
 			partInstance.CanTouch = false
 			partInstance.CanQuery = false
 
-			local finalRel = partInfo.RelCFrame
-			if needsFlip then
-				finalRel = CFrame.Angles(0, math.pi, 0) * finalRel
-			end
-			partOffsets[partInstance] = finalRel
-			partInstance.CFrame = grotHitbox.CFrame * finalRel
+			local relCF = partInfo.RelCFrame
+			partOffsets[partInstance] = relCF
+			partInstance.CFrame = liveHitbox.CFrame * relCF
 		end
 	end
 

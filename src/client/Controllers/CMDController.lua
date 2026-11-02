@@ -171,24 +171,11 @@ function CMDController.Init()
 		CMDController.Close()
 	end)
 
-	-- Subtitle Info
-	local subInfo = Instance.new("TextLabel")
-	subInfo.Name = "SubInfo"
-	subInfo.Size = UDim2.new(1, -28, 0, 16)
-	subInfo.Position = UDim2.new(0, 14, 0, 48)
-	subInfo.BackgroundTransparency = 1
-	subInfo.Font = Enum.Font.Gotham
-	subInfo.Text = "Forsaken / Item Asylum Style Debug Controls • Press [~] or click [CMD] to toggle"
-	subInfo.TextColor3 = Color3.fromRGB(140, 155, 180)
-	subInfo.TextSize = 10
-	subInfo.TextXAlignment = Enum.TextXAlignment.Left
-	subInfo.Parent = mainFrame
-
-	-- Scroll Container
+	-- Scroll Container (Clean header without subtitle)
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "ContentScroll"
-	scrollFrame.Size = UDim2.new(1, -20, 1, -85)
-	scrollFrame.Position = UDim2.new(0, 10, 0, 70)
+	scrollFrame.Size = UDim2.new(1, -20, 1, -60)
+	scrollFrame.Position = UDim2.new(0, 10, 0, 50)
 	scrollFrame.BackgroundTransparency = 1
 	scrollFrame.BorderSizePixel = 0
 	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 570)
@@ -534,10 +521,10 @@ function CMDController.Init()
 		Color3.fromRGB(241, 196, 15)
 	)
 
-	-- 3. Aggressive Dummy (250 HP, 10 DMG every 1.0s)
+	-- 3. Aggressive Dummy (250 HP, 100 DMG every 1.0s)
 	createDummyBtn(
 		"⚔️ Aggressive Dummy",
-		"250 HP • Attacks 1.0s (10 DMG)",
+		"250 HP • Attacks 1.0s (100 DMG)",
 		"Aggressive",
 		10, 62,
 		Color3.fromRGB(231, 76, 60)

@@ -20,6 +20,8 @@ local HUDController = require(Controllers:WaitForChild("HUDController"))
 local CombatController = require(Controllers:WaitForChild("CombatController"))
 local GrotAnimationController = require(Controllers:WaitForChild("GrotAnimationController"))
 local CMDController = require(Controllers:WaitForChild("CMDController"))
+local ShopController = require(Controllers:WaitForChild("ShopController"))
+local OverheadController = require(Controllers:WaitForChild("OverheadController"))
 
 -- Initialize all client controllers
 CMDController.Init()
@@ -27,6 +29,8 @@ InputController.Init()
 HUDController.Init()
 CombatController.Init()
 GrotAnimationController.Init()
+ShopController.Init()
+OverheadController.Init()
 
 --[[
     Ensures the camera immediately targets the active character's Humanoid.

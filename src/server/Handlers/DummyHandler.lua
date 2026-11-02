@@ -193,12 +193,18 @@ local function buildBaseNoobModel(name: string, spawnCFrame: CFrame, maxHp: numb
 	model:SetAttribute("MaxHealth", maxHp)
 	model:SetAttribute("Health", maxHp)
 	model:SetAttribute("HP", maxHp)
+	model:SetAttribute("MaxStamina", 100)
+	model:SetAttribute("Stamina", 100)
 	model:SetAttribute("DEF", 0)
 	model:SetAttribute("Regen", 0)
+	model:SetAttribute("Level", 1)
+	model:SetAttribute("EXP", 0)
+	model:SetAttribute("NextLevelEXP", 101)
 
-	-- 8. Overhead Health BillboardGui
+	-- 8. Overhead Health BillboardGui (Disabled in favor of unified AoV overhead tag)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "DummyOverheadGui"
+	billboard.Enabled = false
 	billboard.Size = UDim2.new(0, 185, 0, 48)
 	billboard.StudsOffset = Vector3.new(0, 2.8, 0)
 	billboard.AlwaysOnTop = true
@@ -306,6 +312,17 @@ local function buildBaseNoobModel(name: string, spawnCFrame: CFrame, maxHp: numb
 	local function refreshDummy()
 		if isRefreshing then return end
 		isRefreshing = true
+
+		-- Award killer +100 Gold and +100 EXP
+		local killerName = model:GetAttribute("LastAttackerPlayerName")
+		if killerName then
+			local killerPlayer = game:GetService("Players"):FindFirstChild(killerName)
+			if killerPlayer then
+				local ShopHandler = require(script.Parent.ShopHandler)
+				ShopHandler.AwardDummyKill(killerPlayer, model)
+			end
+			model:SetAttribute("LastAttackerPlayerName", nil)
+		end
 
 		task.delay(0.35, function()
 			if not model or not model.Parent then return end
@@ -450,12 +467,12 @@ end
 --[[
     4. Aggressive Dummy (250 HP, 0 DEF, stationary):
     - Attacks every 1.0s using a 3x3x3 hitbox directly in front (hrp * CFrame.new(0,0,-2.5))
-      dealing 10 Physical damage (mitigated by target DEF, or 0 if Invincible).
+      dealing 100 Physical damage (mitigated by target DEF, e.g. 85 DMG vs Grot's 15 DEF, or 0 if Invincible).
     - Reliably hits Grot (Grot_hitbox), Blocky, and Unmorphed players.
 --]]
 function DummyHandler.CreateAggressiveDummy(spawnCFrame: CFrame): Model
 	local CombatHandler = require(script.Parent.CombatHandler)
-	local model, hrp, torso, rightShoulder = buildBaseNoobModel("AggressiveDummy", spawnCFrame, 250, "AGGRESSIVE DUMMY (250 HP, 10 DMG)")
+	local model, hrp, torso, rightShoulder = buildBaseNoobModel("AggressiveDummy", spawnCFrame, 250, "AGGRESSIVE DUMMY (250 HP, 100 DMG)")
 	model.Parent = Workspace
 
 	local defaultShoulderC0 = CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0)
@@ -513,7 +530,7 @@ function DummyHandler.CreateAggressiveDummy(spawnCFrame: CFrame): Model
 		local targets = HitboxEngine.GetTargetsInBox(model, hitboxCFrame, hitboxSize)
 
 		for _, targetChar in ipairs(targets) do
-			CombatHandler.ApplyDamage(model, targetChar, 10, "Physical", 8, 0.25)
+			CombatHandler.ApplyDamage(model, targetChar, 100, "Physical", 8, 0.25)
 		end
 	end
 

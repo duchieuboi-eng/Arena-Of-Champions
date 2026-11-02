@@ -15,6 +15,7 @@
 
 local UserInputService = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
+local StarterGui = game:GetService("StarterGui")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -31,14 +32,27 @@ local isSprinting = false
 local isShiftLockActive = false
 
 --[[
-    Disables Roblox's built-in Shift-Lock entirely so LeftShift never interferes.
+    Disables Roblox's built-in Shift-Lock entirely so LeftShift never interferes,
+    and disables default backpack hotbar opening on backtick.
 --]]
 function InputController.DisableRobloxDefaultShiftLock()
+	local localPlayer = Players.LocalPlayer
+	localPlayer.DevEnableMouseLock = false
+
+	-- Disable Backpack CoreGui to stop default backtick inventory popups
+	task.spawn(function()
+		for i = 1, 10 do
+			pcall(function()
+				StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+			end)
+			task.wait(0.3)
+		end
+	end)
+
 	pcall(function()
 		ContextActionService:UnbindAction("MouseLockSwitchAction")
 	end)
 
-	local localPlayer = Players.LocalPlayer
 	local playerScripts = localPlayer:WaitForChild("PlayerScripts")
 
 	task.spawn(function()
@@ -146,15 +160,17 @@ function InputController.Init()
 		end
 	end)
 
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		-- Allow ~ key to toggle CMD even if interacting, but ignore typing in textboxes
-		if input.KeyCode == Enum.KeyCode.Backquote then
+	-- Intercept Backquote (~) at high priority to prevent Roblox inventory / chat popups
+	ContextActionService:BindActionAtPriority("ToggleCMDPanelAction", function(actionName, inputState, inputObject)
+		if inputState == Enum.UserInputState.Begin then
 			if not UserInputService:GetFocusedTextBox() then
 				CMDController.Toggle()
-				return
 			end
 		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value + 2000, Enum.KeyCode.Backquote)
 
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
 
 		-- 1. Dedicated Shift-Lock Toggle (LeftControl / RightControl ONLY)

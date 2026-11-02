@@ -1,0 +1,60 @@
+Please implement all remaining bug fixes and core systems (Shift-Lock, Grot Vine Skill visual fix, Item Shop, Leveling & AoV NameTag HUD, and CMD Panel cleanup):
+
+### 1. FIX SHIFT-LOCK (CTRL ONLY) & UNBIND SHIFT
+- **Bug:** Pressing `LeftShift` still triggers Roblox's built-in Shift-Lock alongside sprinting.
+- **How to fix:**
+  1. On server startup (`ServerMain.server.lua`), strictly enforce:
+     - `game:GetService("StarterPlayer").EnableMouseLockOption = false`
+     - `player.DevEnableMouseLock = false`
+  2. In `InputController.lua`, unbind any default shift mouse-lock actions via `ContextActionService`, and bind custom shift-lock strictly to **`LeftControl`** and **`RightControl`**. `LeftShift` must remain 100% dedicated to Sprinting and never toggle camera shift-lock.
+
+---
+
+### 2. FIX GROT "VINE" (`E`) SKILL VISUALS & DIRECTIONAL SPINNING
+- **Bug:** The vine visual spawned as a single flat green strip in the air or underground and did not follow Grot's rotation during the wind-up.
+- **How to fix:**
+  1. **Use the Real "Skill area" Models:** Every frame model (`Grot_S1frame1` through `Grot_S1frame5`) contains a child `Model` named `"Skill area"`. When casting `E`, clone the actual `"Skill area"` model from the active frame.
+  2. **Accurate World Positioning:** Compute each part's CFrame relative to `Grot_hitbox` in the source frame model (`local relCF = frameHitbox.CFrame:ToObjectSpace(part.CFrame)`), and position the cloned visual relative to Grot's live `Grot_hitbox` in the world (`liveHitbox.CFrame * relCF`). This ensures the 3-lane grass and spikes appear flat on the floor directly in front of Grot.
+  3. **Spinning / Aiming During Wind-Up (0.95s Total):**
+     - Frames 1 to 4 (`0.15s + 0.25s + 0.15s + 0.20s = 0.75s`): `WalkSpeed = 0`, player can freely rotate/aim with camera and Shift-Lock, and the growing `"Skill area"` visual rotates live with Grot.
+     - Frame 5 (`0.20s` from `0.75s` to `0.95s`): `AutoRotate = false`, rotation locks completely, and Frame 5's spiky `"Skill area"` slams down.
+     - After `0.95s` (3.0s Active Zone): Movement unlocks (`WalkSpeed = 14`), the spiky `"Skill area"` stays anchored on the ground for `3.0s`, pulsing every `0.5s` (6 pulses total) for `math.ceil((Physical / 2) + Magic) = 13` damage (mitigated by DEF) and healing Grot once per pulse by `{Regen}` if an enemy is hit.
+
+---
+
+### 3. REMOVE BACKTICK (`) INVENTORY POP-UP & CLEAN CMD PANEL HEADER
+- **Backtick Key (`` ` ``):** Intercept the backtick key so it exclusively opens/closes the Testing CMD panel and never opens Roblox's default chat, inventory, or UI bar.
+- **CMD Panel Header:** Remove the gray subtitle line mentioning "Forsaken / Item Asylum" entirely from the top header of the testing CMD panel.
+
+---
+
+### 4. ARENA OF VALOR (AoV) STYLE SHOP, ITEMS & ECONOMY
+1. **Gold & EXP Economy:**
+   - Defeating *any* dummy awards **+100 Gold** and **+100 EXP**.
+2. **Shop UI System:**
+   - Add a sleek Shop button on the HUD that opens a 3-slot Tier I Item Shop:
+     - **Shortsword** (Cost: `150G` | Sell: `75G`): Grants **+10 Physical** permanently.
+     - **Magic dust** (Cost: `250G` | Sell: `125G`): Grants **+30 Magic** permanently.
+     - **Leather armor** (Cost: `300G` | Sell: `150G`): Grants **+5 DEF** permanently.
+   - Players can buy slots or sell items back for 50% of their original purchase price. Stat boosts apply instantly to the character's live attributes and stat panel.
+
+---
+
+### 5. LEVELING SYSTEM (CAPPED AT 10) & AoV NAME TAG HUD
+1. **Leveling Formula:**
+   - Max Level: `10`.
+   - EXP required for the next level: `{Level} * 100 + {Level}` (Level 1->2 requires 101 EXP, etc.).
+2. **Grot Permanent Stat Growth per Level Up:**
+   - Every time Grot levels up, permanently add: **+3 DEF**, **+10 HP**, and **+5 Stamina** to his base stats and update MaxHP/MaxStamina instantly.
+3. **AoV Style Overhead Name Tag:**
+   - Above every player and dummy, display a sleek Arena of Valor style floating name tag showing:
+     - Player/Dummy Name & **[ Lv. X ]**
+     - Current EXP bar
+     - **HP Bar** + Current / Max HP numbers + **Lost HP indicator**
+     - **Stamina Bar** + Current / Max Stamina numbers + **Lost Stamina indicator**
+
+---
+
+### 6. AGGRESSIVE DUMMY DAMAGE BOOST & ANIMATION FIX
+- **Aggressive Dummy:** Set its attack damage to **100** Physical damage so it cleanly strikes Grot through his `15 DEF` barrier (dealing 85 actual damage) to verify DEF calculations.
+- **Animation Bugfix:** Ensure `GrotAnimationController` always resets `IsAttacking` and `IsCastingSkill` flags cleanly after skills/M1 finish so Grot never gets stuck in a frozen sliding T-pose.

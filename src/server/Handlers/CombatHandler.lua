@@ -249,15 +249,16 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 
 		-- 4. At 0.95s: Frame 5 finishes! Unlock movement/rotation, establish 3.0s lingering zone
 		task.delay(skillData.Windup or 0.95, function()
+			if character then
+				character:SetAttribute("IsCastingSkill", false)
+				character:SetAttribute("RotationLocked", false)
+				character:SetAttribute("IsAttacking", false)
+			end
+			if humanoid and humanoid.Parent then
+				humanoid.WalkSpeed = normalWalkSpeed
+				humanoid.AutoRotate = true
+			end
 			if not character or not character.Parent or not rootPart then return end
-
-			-- Unlock movement and rotation immediately
-			character:SetAttribute("IsCastingSkill", false)
-			character:SetAttribute("RotationLocked", false)
-			character:SetAttribute("IsAttacking", false)
-
-			humanoid.WalkSpeed = normalWalkSpeed
-			humanoid.AutoRotate = true
 
 			-- Capture final orientation where Grot faced at Frame 5
 			local finalFacingCFrame = rootPart.CFrame
@@ -365,6 +366,12 @@ function CombatHandler.ApplyDamage(attacker: Model, target: Model, rawDamage: nu
 
 	targetHumanoid:TakeDamage(finalDamage)
 	target:SetAttribute("Health", math.max(0, targetHumanoid.Health))
+
+	-- Track last attacker player for dummy kill rewards (+100G, +100 EXP)
+	local attackerPlayer = attacker and Players:GetPlayerFromCharacter(attacker)
+	if attackerPlayer and (target:GetAttribute("IsTestingDummy") or string.find(target.Name, "Dummy")) then
+		target:SetAttribute("LastAttackerPlayerName", attackerPlayer.Name)
+	end
 
 	if targetRoot and attackerRoot and knockback and knockback > 0 then
 		local dir = (targetRoot.Position - attackerRoot.Position)

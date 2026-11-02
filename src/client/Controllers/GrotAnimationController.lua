@@ -143,31 +143,51 @@ function GrotAnimationController.PlayM1(character: Model)
 
 	data.isAttacking = true
 
+	-- Safety timeout ensuring M1 flags never get stuck
+	task.delay(0.6, function()
+		if data.isAttacking then
+			data.isAttacking = false
+			data.currentState = "None"
+			if character and character.Parent then
+				character:SetAttribute("IsAttacking", false)
+			end
+		end
+	end)
+
 	task.spawn(function()
-		-- 1. Wind-up Phase (0.25s total)
-		if poses.M1Frame1 then
-			tweenToPose(data, poses.M1Frame1, 0.11, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-		end
-		task.wait(0.11)
+		local success, err = pcall(function()
+			-- 1. Wind-up Phase (0.25s total)
+			if poses.M1Frame1 then
+				tweenToPose(data, poses.M1Frame1, 0.11, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+			end
+			task.wait(0.11)
 
-		if poses.M1Frame2 then
-			tweenToPose(data, poses.M1Frame2, 0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-		end
-		task.wait(0.14)
+			if poses.M1Frame2 then
+				tweenToPose(data, poses.M1Frame2, 0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			end
+			task.wait(0.14)
 
-		-- 2. Heavy Slam Impact (0.08s) right as hitbox appears
-		if poses.M1Frame3 then
-			tweenToPose(data, poses.M1Frame3, 0.08, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+			-- 2. Heavy Slam Impact (0.08s) right as hitbox appears
+			if poses.M1Frame3 then
+				tweenToPose(data, poses.M1Frame3, 0.08, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+			end
+
+			if character == Players.LocalPlayer.Character then
+				triggerCameraImpactBump()
+			end
+			task.wait(0.10) -- 0.10s active linger
+		end)
+
+		if not success then
+			warn("[GrotAnimationController] M1 error: " .. tostring(err))
 		end
 
-		if character == Players.LocalPlayer.Character then
-			triggerCameraImpactBump()
-		end
-		task.wait(0.10) -- 0.10s active linger
-
-		-- 3. Recovery Phase: Return to normal state
+		-- 3. Recovery Phase: Return to normal state cleanly
 		data.isAttacking = false
 		data.currentState = "None"
+		if character and character.Parent then
+			character:SetAttribute("IsAttacking", false)
+		end
 	end)
 end
 
@@ -212,6 +232,23 @@ function GrotAnimationController.PlayS1(character: Model)
 		humanoid.WalkSpeed = 0
 	end
 
+	-- Safety timeout ensuring S1 flags and WalkSpeed never get permanently stuck
+	task.delay(1.5, function()
+		if data.isAttacking then
+			data.isAttacking = false
+			data.currentState = "None"
+			if character and character.Parent then
+				character:SetAttribute("RotationLocked", false)
+				character:SetAttribute("IsCastingSkill", false)
+				character:SetAttribute("IsAttacking", false)
+			end
+			if humanoid and humanoid.Parent and humanoid.WalkSpeed == 0 then
+				humanoid.WalkSpeed = character:GetAttribute("Walk") or 14
+				humanoid.AutoRotate = true
+			end
+		end
+	end)
+
 	task.spawn(function()
 		local activeSkillAreaModel: Model? = nil
 		local activePartOffsets: { [BasePart]: CFrame }? = nil
@@ -230,89 +267,97 @@ function GrotAnimationController.PlayS1(character: Model)
 			end
 		end
 
-		-- Frames 1 to 4 (0.00s to 0.75s): Player CAN rotate/spin freely to aim!
-		for i = 1, 4 do
-			local frameInfo = s1Frames[i]
+		local success, err = pcall(function()
+			-- Frames 1 to 4 (0.00s to 0.75s): Player CAN rotate/spin freely to aim!
+			for i = 1, 4 do
+				local frameInfo = s1Frames[i]
 
-			-- Pose tween
-			if frameInfo.pose then
-				tweenToPose(data, frameInfo.pose, frameInfo.duration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-			end
-
-			-- Spawn REAL frame Skill area model
-			cleanupActiveVisual()
-			activeSkillAreaModel, activePartOffsets = GrotRigFactory.SpawnSkillAreaForFrame(i, character)
-
-			-- Follow Grot's live rotation as the player aims during this frame
-			if activePartOffsets and grotHitbox then
-				spinFollowConnection = RunService.RenderStepped:Connect(function()
-					if not grotHitbox or not grotHitbox.Parent then return end
-					for part, relCF in pairs(activePartOffsets) do
-						if part and part.Parent then
-							part.CFrame = grotHitbox.CFrame * relCF
-						end
-					end
-				end)
-			end
-
-			task.wait(frameInfo.duration)
-		end
-
-		-- =====================================================================
-		-- Entering Frame 5 (0.75s to 0.95s): Lock rotation completely!
-		-- =====================================================================
-		character:SetAttribute("RotationLocked", true)
-		if humanoid then
-			humanoid.AutoRotate = false
-		end
-
-		local lockedOrientationCFrame = grotHitbox and grotHitbox.CFrame or rootPart.CFrame
-
-		-- Disconnect live spin follower and spawn final Frame 5 spiky Skill area model
-		if spinFollowConnection then
-			spinFollowConnection:Disconnect()
-			spinFollowConnection = nil
-		end
-		if activeSkillAreaModel and activeSkillAreaModel.Parent then
-			activeSkillAreaModel:Destroy()
-		end
-
-		local frame5Model, frame5Offsets = GrotRigFactory.SpawnSkillAreaForFrame(5, character)
-		if frame5Model and frame5Offsets and lockedOrientationCFrame then
-			for part, relCF in pairs(frame5Offsets) do
-				if part and part.Parent then
-					part.CFrame = lockedOrientationCFrame * relCF
+				-- Pose tween
+				if frameInfo.pose then
+					tweenToPose(data, frameInfo.pose, frameInfo.duration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 				end
+
+				-- Spawn REAL frame Skill area model
+				cleanupActiveVisual()
+				activeSkillAreaModel, activePartOffsets = GrotRigFactory.SpawnSkillAreaForFrame(i, character)
+
+				-- Follow Grot's live rotation as the player aims during this frame
+				if activePartOffsets and grotHitbox then
+					spinFollowConnection = RunService.RenderStepped:Connect(function()
+						local currentHitbox = character:FindFirstChild("Grot_hitbox") or character:FindFirstChild("HumanoidRootPart") :: BasePart?
+						if not currentHitbox or not currentHitbox.Parent then return end
+						for part, relCF in pairs(activePartOffsets) do
+							if part and part.Parent then
+								part.CFrame = currentHitbox.CFrame * relCF
+							end
+						end
+					end)
+				end
+
+				task.wait(frameInfo.duration)
 			end
-			-- Leave Frame 5 spiky model anchored in the world for 3.0s!
-			Debris:AddItem(frame5Model, 3.0)
-		end
 
-		-- Play Frame 5 pose slam (0.20s)
-		local frame5 = s1Frames[5]
-		if frame5.pose then
-			tweenToPose(data, frame5.pose, frame5.duration, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-		end
-
-		-- Maintain rotation lock strictly during Frame 5 (0.20s)
-		local lockStart = os.clock()
-		while (os.clock() - lockStart) < 0.20 do
-			if rootPart and lockedOrientationCFrame then
-				rootPart.CFrame = CFrame.new(rootPart.Position) * lockedOrientationCFrame.Rotation
+			-- =====================================================================
+			-- Entering Frame 5 (0.75s to 0.95s): Lock rotation completely!
+			-- =====================================================================
+			character:SetAttribute("RotationLocked", true)
+			if humanoid then
+				humanoid.AutoRotate = false
 			end
-			RunService.RenderStepped:Wait()
+
+			local liveRoot = character:FindFirstChild("Grot_hitbox") or character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local lockedOrientationCFrame = liveRoot and liveRoot.CFrame or CFrame.identity
+
+			-- Disconnect live spin follower and spawn final Frame 5 spiky Skill area model
+			cleanupActiveVisual()
+
+			local frame5Model, frame5Offsets = GrotRigFactory.SpawnSkillAreaForFrame(5, character)
+			if frame5Model and frame5Offsets and lockedOrientationCFrame then
+				for part, relCF in pairs(frame5Offsets) do
+					if part and part.Parent then
+						part.CFrame = lockedOrientationCFrame * relCF
+					end
+				end
+				-- Leave Frame 5 spiky model anchored in the world for 3.0s!
+				Debris:AddItem(frame5Model, 3.0)
+			end
+
+			-- Play Frame 5 pose slam (0.20s)
+			local frame5 = s1Frames[5]
+			if frame5.pose then
+				tweenToPose(data, frame5.pose, frame5.duration, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+			end
+
+			-- Maintain rotation lock strictly during Frame 5 (0.20s)
+			local lockStart = os.clock()
+			while (os.clock() - lockStart) < 0.20 do
+				local currentRoot = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if currentRoot and lockedOrientationCFrame then
+					currentRoot.CFrame = CFrame.new(currentRoot.Position) * lockedOrientationCFrame.Rotation
+				end
+				RunService.RenderStepped:Wait()
+			end
+
+			-- Camera bump impact
+			if isLocal then
+				triggerCameraImpactBump()
+			end
+		end)
+
+		if not success then
+			warn("[GrotAnimationController] S1 error: " .. tostring(err))
 		end
 
-		-- Camera bump impact
-		if isLocal then
-			triggerCameraImpactBump()
-		end
+		cleanupActiveVisual()
 
 		-- =====================================================================
 		-- At 0.95s: Wind-up completes! Unlock movement & rotation immediately!
 		-- =====================================================================
 		character:SetAttribute("RotationLocked", false)
-		if humanoid then
+		character:SetAttribute("IsCastingSkill", false)
+		character:SetAttribute("IsAttacking", false)
+
+		if humanoid and humanoid.Parent then
 			humanoid.WalkSpeed = character:GetAttribute("Walk") or 14
 			humanoid.AutoRotate = true
 		end
