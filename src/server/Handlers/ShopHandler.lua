@@ -69,15 +69,9 @@ function ShopHandler.SyncToCharacter(player: Player, character: Model)
 	for i = 1, EconomyConfig.MaxInventorySlots do
 		local itemId = player:GetAttribute("ItemSlot" .. tostring(i))
 		character:SetAttribute("ItemSlot" .. tostring(i), itemId or "")
-
-		if itemId and itemId ~= "" and EconomyConfig.Items[itemId] then
-			local item = EconomyConfig.Items[itemId]
-			for statKey, bonus in pairs(item.Stats) do
-				local cur = character:GetAttribute(statKey) or 0
-				character:SetAttribute(statKey, cur + bonus)
-			end
-		end
 	end
+
+	LevelHandler.RecalculateCharacterStats(player, character)
 end
 
 function ShopHandler.HandleBuyItem(player: Player, itemId: string)
@@ -111,12 +105,7 @@ function ShopHandler.HandleBuyItem(player: Player, itemId: string)
 	if character then
 		character:SetAttribute("Gold", player:GetAttribute("Gold"))
 		character:SetAttribute("ItemSlot" .. tostring(targetSlot), itemId)
-
-		-- Apply live stat bonuses
-		for statKey, bonus in pairs(item.Stats) do
-			local cur = character:GetAttribute(statKey) or 0
-			character:SetAttribute(statKey, cur + bonus)
-		end
+		LevelHandler.RecalculateCharacterStats(player, character)
 	end
 end
 
@@ -140,12 +129,7 @@ function ShopHandler.HandleSellItem(player: Player, slotIndex: number)
 	if character then
 		character:SetAttribute("Gold", player:GetAttribute("Gold"))
 		character:SetAttribute(slotKey, "")
-
-		-- Deduct live stat bonuses
-		for statKey, bonus in pairs(item.Stats) do
-			local cur = character:GetAttribute(statKey) or 0
-			character:SetAttribute(statKey, math.max(0, cur - bonus))
-		end
+		LevelHandler.RecalculateCharacterStats(player, character)
 	end
 end
 

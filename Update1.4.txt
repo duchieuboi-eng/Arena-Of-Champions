@@ -1,60 +1,142 @@
-Please implement all remaining bug fixes and core systems (Shift-Lock, Grot Vine Skill visual fix, Item Shop, Leveling & AoV NameTag HUD, and CMD Panel cleanup):
+The previous update broke the character rigging/animations (regressing to Update 1.1 floating/detached limb bugs) and failed to fix the sideways Vine ("Skill area") orientation and Shift-Lock conflict.
 
-### 1. FIX SHIFT-LOCK (CTRL ONLY) & UNBIND SHIFT
-- **Bug:** Pressing `LeftShift` still triggers Roblox's built-in Shift-Lock alongside sprinting.
-- **How to fix:**
-  1. On server startup (`ServerMain.server.lua`), strictly enforce:
-     - `game:GetService("StarterPlayer").EnableMouseLockOption = false`
-     - `player.DevEnableMouseLock = false`
-  2. In `InputController.lua`, unbind any default shift mouse-lock actions via `ContextActionService`, and bind custom shift-lock strictly to **`LeftControl`** and **`RightControl`**. `LeftShift` must remain 100% dedicated to Sprinting and never toggle camera shift-lock.
+Please carefully read and execute every section below step-by-step. Do NOT take shortcuts or use placeholder geometry.
 
 ---
 
-### 2. FIX GROT "VINE" (`E`) SKILL VISUALS & DIRECTIONAL SPINNING
-- **Bug:** The vine visual spawned as a single flat green strip in the air or underground and did not follow Grot's rotation during the wind-up.
-- **How to fix:**
-  1. **Use the Real "Skill area" Models:** Every frame model (`Grot_S1frame1` through `Grot_S1frame5`) contains a child `Model` named `"Skill area"`. When casting `E`, clone the actual `"Skill area"` model from the active frame.
-  2. **Accurate World Positioning:** Compute each part's CFrame relative to `Grot_hitbox` in the source frame model (`local relCF = frameHitbox.CFrame:ToObjectSpace(part.CFrame)`), and position the cloned visual relative to Grot's live `Grot_hitbox` in the world (`liveHitbox.CFrame * relCF`). This ensures the 3-lane grass and spikes appear flat on the floor directly in front of Grot.
-  3. **Spinning / Aiming During Wind-Up (0.95s Total):**
-     - Frames 1 to 4 (`0.15s + 0.25s + 0.15s + 0.20s = 0.75s`): `WalkSpeed = 0`, player can freely rotate/aim with camera and Shift-Lock, and the growing `"Skill area"` visual rotates live with Grot.
-     - Frame 5 (`0.20s` from `0.75s` to `0.95s`): `AutoRotate = false`, rotation locks completely, and Frame 5's spiky `"Skill area"` slams down.
-     - After `0.95s` (3.0s Active Zone): Movement unlocks (`WalkSpeed = 14`), the spiky `"Skill area"` stays anchored on the ground for `3.0s`, pulsing every `0.5s` (6 pulses total) for `math.ceil((Physical / 2) + Magic) = 13` damage (mitigated by DEF) and healing Grot once per pulse by `{Regen}` if an enemy is hit.
+### 0. RESTORE WORKING GROT LIMB RIGGING (STOP FLOATING / DETACHED LIMBS)
+- **Why it broke:** Recent edits to `GrotRigFactory.lua` / `GrotAnimationController.lua` corrupted the limb joint offsets and caused Grot's head, legs, and arms to detach, float, or freeze after skills.
+- **How to fix `GrotRigFactory.lua` & `GrotAnimationController.lua`:**
+  1. Check `git diff HEAD~1` on `GrotRigFactory.lua` and `GrotAnimationController.lua` to see how the limb bounding-box pivot rigging worked before the last commit broke it.
+  2. For all 6 body limbs (`Brown arm`, `Brown leg`, `Head`, `Orange arm`, `Orange leg`, `Torso`):
+     - Compute each limb's center position using `local boxCF, boxSize = limbModel:GetBoundingBox()`.
+     - IMPORTANT: Because rotating parts in Studio changes the orientation of `GetBoundingBox()`, do NOT use the random rotation of `boxCF` as the reference frame! Instead, use a consistent **axis-aligned CFrame positioned at `boxCF.Position`** (or use a consistent primary child part's orientation across all poses) relative to an upright, forward-normalized `Grot_hitbox` CFrame so limb offsets NEVER twist sideways or stack vertically into a tower.
+     - Weld all voxel sub-parts inside each limb (`Anchored = false`, `CanCollide = false`, `Massless = true`) to an invisible `LimbPivot` part using `WeldConstraint`, and attach `LimbPivot` to `Grot_hitbox` via `Motor6D`.
+  3. **Prevent Frozen Animations After Skills:**
+     - In `GrotAnimationController.lua`, wrap all M1 and E skill animation sequences in `task.spawn` + `pcall` so even if a model part is missing or interrupted, `IsAttacking` and `IsCastingSkill` ALWAYS reset to `false` and the walk (`Grot_walk1 <-> Grot_walk2`) and 2.5x slowed sprint (`Grot_sprint1 <-> Grot_sprint2`, `0.45s` per step) loops immediately resume.
 
 ---
 
-### 3. REMOVE BACKTICK (`) INVENTORY POP-UP & CLEAN CMD PANEL HEADER
-- **Backtick Key (`` ` ``):** Intercept the backtick key so it exclusively opens/closes the Testing CMD panel and never opens Roblox's default chat, inventory, or UI bar.
-- **CMD Panel Header:** Remove the gray subtitle line mentioning "Forsaken / Item Asylum" entirely from the top header of the testing CMD panel.
+### 1. FIX SHIFT-LOCK (`CTRL` ONLY) & STOP `SHIFT` FROM SHIFT-LOCKING
+- **Bug:** Both `LeftShift` and `LeftControl` currently trigger Shift-Lock.
+- **Exact Fix:**
+  1. In `ServerMain.server.lua` (and on every `Players.PlayerAdded`), force:
+     ```lua
+     game:GetService("StarterPlayer").EnableMouseLockOption = false
+     player.DevEnableMouseLock = false
+     ```
+  2. In `InputController.lua`:
+     - Continuously unbind Roblox's native `"MouseLockSwitchAction"` using `ContextActionService:UnbindAction("MouseLockSwitchAction")`. Do NOT bind `LeftShift` or `RightShift` to any camera/mouse lock controller.
+     - `LeftShift` must **ONLY** fire the Sprint remote (`SetSprintState(true/false)`).
+     - `LeftControl` and `RightControl` must **ONLY** toggle the custom Shift-Lock state:
+       - When ON: `UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter`, `humanoid.CameraOffset = Vector3.new(1.75, 0, 0)`, and on `RunService.RenderStepped`, smoothly align the character's root part horizontally with the camera's flat `LookVector` (unless `character:GetAttribute("RotationLocked") == true`).
+       - When OFF: `UserInputService.MouseBehavior = Enum.MouseBehavior.Default` and `humanoid.CameraOffset = Vector3.zero`.
 
 ---
 
-### 4. ARENA OF VALOR (AoV) STYLE SHOP, ITEMS & ECONOMY
-1. **Gold & EXP Economy:**
-   - Defeating *any* dummy awards **+100 Gold** and **+100 EXP**.
-2. **Shop UI System:**
-   - Add a sleek Shop button on the HUD that opens a 3-slot Tier I Item Shop:
-     - **Shortsword** (Cost: `150G` | Sell: `75G`): Grants **+10 Physical** permanently.
-     - **Magic dust** (Cost: `250G` | Sell: `125G`): Grants **+30 Magic** permanently.
-     - **Leather armor** (Cost: `300G` | Sell: `150G`): Grants **+5 DEF** permanently.
-   - Players can buy slots or sell items back for 50% of their original purchase price. Stat boosts apply instantly to the character's live attributes and stat panel.
+### 2. DISABLE ROBLOX DEFAULT BACKPACK ON `` ` `` KEY & CLEAN CMD PANEL
+- **Bug:** Pressing `` ` `` (`Enum.KeyCode.Backquote`) opens Roblox's default CoreGui Inventory/Backpack at the bottom of the screen.
+- **Exact Fix:**
+  1. In `ClientMain.client.lua` (and `HUDController.lua`), disable the Roblox Backpack CoreGui on startup inside a `pcall` retry loop:
+     ```lua
+     task.spawn(function()
+         for i = 1, 20 do
+             local ok = pcall(function()
+                 game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+             end)
+             if ok then break end
+             task.wait(0.2)
+         end
+     end)
+     ```
+  2. Pressing `` ` `` (`Enum.KeyCode.Backquote`) or clicking the `[ CMD ]` button must exclusively toggle the custom `ARENA TESTING CMD PANEL`.
+  3. **Remove Subtitle:** In the CMD Panel UI script, delete the gray subtitle text line that mentions `"Forsaken"` or `"Item Asylum"`.
 
 ---
 
-### 5. LEVELING SYSTEM (CAPPED AT 10) & AoV NAME TAG HUD
-1. **Leveling Formula:**
-   - Max Level: `10`.
-   - EXP required for the next level: `{Level} * 100 + {Level}` (Level 1->2 requires 101 EXP, etc.).
-2. **Grot Permanent Stat Growth per Level Up:**
-   - Every time Grot levels up, permanently add: **+3 DEF**, **+10 HP**, and **+5 Stamina** to his base stats and update MaxHP/MaxStamina instantly.
-3. **AoV Style Overhead Name Tag:**
-   - Above every player and dummy, display a sleek Arena of Valor style floating name tag showing:
-     - Player/Dummy Name & **[ Lv. X ]**
-     - Current EXP bar
-     - **HP Bar** + Current / Max HP numbers + **Lost HP indicator**
-     - **Stamina Bar** + Current / Max Stamina numbers + **Lost Stamina indicator**
+### 3. FIX GROT "VINE" (`E` SKILL) — FIX 90° SIDEWAYS / FLOATING BUG & USE REAL `"Skill area"` MODELS
+- **Why the Vine was facing 90° sideways and floating in the air:**
+  In `Workspace.Grot`, `Grot_hitbox` inside `Grot_S1frame1..5` has its local CFrame axes rotated 90° compared to `HumanoidRootPart.CFrame.LookVector`. Using raw `frameHitbox.CFrame:ToObjectSpace(part.CFrame)` caused the vine strip to stick out sideways at 90° and tilt into the sky!
+- **Exact Mathematical Fix (Use This Direction-Normalized Basis):**
+  1. Each frame model (`Grot_S1frame1`, `Grot_S1frame2`, `Grot_S1frame3`, `Grot_S1frame4`, `Grot_S1frame5`) has its own `"Grot_hitbox"` part and its own child `Model` named `"Skill area"` (containing the 3 grass strips and rock spikes).
+  2. For each frame `1..5`, compute the true forward direction from `"Grot_hitbox"` to `"Skill area"` in Studio space:
+     ```lua
+     local frameHitbox = frameModel:FindFirstChild("Grot_hitbox", true)
+     local skillArea = frameModel:FindFirstChild("Skill area")
+     local areaCF, areaSize = skillArea:GetBoundingBox()
+     -- Direction from Grot_hitbox to Skill area on the flat X-Z plane in Studio:
+     local studioForward = Vector3.new(areaCF.Position.X - frameHitbox.Position.X, 0, areaCF.Position.Z - frameHitbox.Position.Z).Unit
+     if studioForward.Magnitude < 0.01 then studioForward = Vector3.new(0, 0, -1) end
+     local studioBasisCF = CFrame.lookAt(frameHitbox.Position, frameHitbox.Position + studioForward, Vector3.yAxis)
+     ```
+  3. Store every `BasePart` inside `skillArea:GetDescendants()` relative to `studioBasisCF`:
+     ```lua
+     local relCF = studioBasisCF:ToObjectSpace(part.CFrame)
+     ```
+  4. When spawning or updating the `"Skill area"` in-game in front of Grot's live `HumanoidRootPart` (`hrp`):
+     ```lua
+     local playerFlatLook = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z).Unit
+     local playerBasisCF = CFrame.lookAt(hrp.Position, hrp.Position + playerFlatLook, Vector3.yAxis)
+     clonedPart.CFrame = playerBasisCF * relCF
+     ```
+     - Do the **exact same `studioBasisCF` calculation** for `Grot_S1interhitbox` -> `Grot_S1hitbox`!
+     - This guarantees the 3 grass lanes and rock spikes ALWAYS lie 100% flat on the floor and point 100% straight forward in the direction Grot is looking—never sideways and never floating!
+- **Exact Wind-Up (`0.95s`) & Active Zone (`3.0s`) Behavior:**
+  - **Wind-Up Timeline (`0.95s` total):**
+    - Frame 1 (`Grot_S1frame1`): `0.15s`
+    - Frame 2 (`Grot_S1frame2`): `0.25s`
+    - Frame 3 (`Grot_S1frame3`): `0.15s`
+    - Frame 4 (`Grot_S1frame4`): `0.20s`
+    - Frame 5 (`Grot_S1frame5`): `0.20s`
+  - **Frames 1–4 (`0.00s` to `0.75s`):** `WalkSpeed = 0` (enforced on both client and server so `CharacterHandler` never overwrites it), `AutoRotate = true`, player **CAN spin/rotate Grot 360°** with camera / Shift-Lock / movement keys, and each frame's cloned `"Skill area"` model updates on `RenderStepped` using `playerBasisCF * relCF` so it rotates live with Grot!
+  - **Frame 5 (`0.75s` to `0.95s`):** `WalkSpeed = 0` AND **rotation locks completely** (`RotationLocked = true`, `AutoRotate = false`). Frame 5's spiky `"Skill area"` locks onto the ground in front of Grot.
+  - **Active Zone (`3.0s` duration after `0.95s`):**
+    - At `0.95s`, unlock Grot (`IsCastingSkill = false`, `RotationLocked = false`, `WalkSpeed = 14`, `AutoRotate = true`) so Grot can walk, sprint, and use M1 freely.
+    - Keep the full spiky `"Skill area"` model anchored on the ground at that locked position for **`3.0s`**.
+    - Every **`0.5s`** for `3.0s` (6 pulses total), flash the translucent red hitbox (`Grot_S1hitbox` aligned via `playerBasisCF`), deal `math.ceil((Physical / 2) + Magic)` damage (reduced by target's flat `DEF`), and if at least 1 enemy is hit on that pulse, heal Grot **once** by `{Regen}` (`+2.5 HP`, capped at `MaxHP`). Clean up the anchored `"Skill area"` after `3.0s`.
 
 ---
 
-### 6. AGGRESSIVE DUMMY DAMAGE BOOST & ANIMATION FIX
-- **Aggressive Dummy:** Set its attack damage to **100** Physical damage so it cleanly strikes Grot through his `15 DEF` barrier (dealing 85 actual damage) to verify DEF calculations.
-- **Animation Bugfix:** Ensure `GrotAnimationController` always resets `IsAttacking` and `IsCastingSkill` flags cleanly after skills/M1 finish so Grot never gets stuck in a frozen sliding T-pose.
+### 4. AGGRESSIVE DUMMY 100 DAMAGE & DUMMY KILL REWARDS (+100G, +100 EXP)
+1. **Aggressive Dummy (`100` Damage):**
+   - Set `Aggressive Dummy`'s attack damage (`3x3x3` front hitbox every `1.0s`) to **`100` Physical Damage** (so against Grot's base `15 DEF`, it deals `85` damage and clearly proves `DEF` reduction works).
+2. **Defeat Rewards (`+100G` & `+100 EXP`):**
+   - Whenever ANY dummy (`Noob Dummy`, `Moving Dummy`, `Tank Dummy`, `Aggressive Dummy`) reaches `0 HP`, award the attacking player **+100 Gold (`G`)** and **+100 EXP** before the dummy resets/respawns its HP.
+
+---
+
+### 5. ARENA OF VALOR (LIÊN QUÂN) 3-SLOT ITEM SHOP
+1. **Gold Attribute & Shop Button:**
+   - Track `Gold` on the player/character (default `0G`, updated when killing dummies).
+   - Add a compact Arena of Valor style **Shop Button** on the HUD showing current Gold (e.g., `🪙 0G - SHOP`) and a **3-Slot Item Inventory bar** next to the skills/HUD.
+2. **3 Basic Tier I Items:**
+   - **Shortsword (`150G`):** `+10 Physical` (Sell back price: `75G`)
+   - **Magic dust (`250G`):** `+30 Magic` (Sell back price: `125G`)
+   - **Leather armor (`300G`):** `+5 DEF` (Sell back price: `150G`)
+3. **Buy & Sell Logic (Max 3 Slots):**
+   - Players can hold up to **3 items** across the 3 inventory slots.
+   - Clicking **Buy** on an item checks if `Gold >= Cost` and if an empty slot (`1..3`) is available. If valid, deducts Gold, places the item in the slot, and immediately increases the character's live stat (`Physical`, `Magic`, or `DEF`).
+   - Clicking an owned item in one of the 3 slots (or clicking **Sell** in the shop) sells it for **50% of its original price** (`75G`, `125G`, or `150G`), frees the slot, and removes its stat bonus immediately.
+
+---
+
+### 6. LEVELING SYSTEM (MAX LV. 10) & AoV OVERHEAD NAME TAG HUD
+1. **Leveling Math (Capped at Level 10):**
+   - Players start at `Level = 1`, `EXP = 0`. Maximum Level is **`10`**.
+   - **EXP Required for Next Level Formula:**
+     ```lua
+     local expRequired = (Level * 100) + Level -- e.g. Lv 1->2 needs 101 EXP, Lv 2->3 needs 202 EXP
+     ```
+   - When `EXP >= expRequired` and `Level < 10`, subtract `expRequired`, increment `Level += 1`, and trigger level-up stat growth.
+2. **Grot Permanent Level-Up Buffs:**
+   - Every time Grot gains 1 Level, permanently add to his stats:
+     - **`+3 DEF`**
+     - **`+10 HP`** (increases both `MaxHP` and current `Health` by `+10`)
+     - **`+5 Stamina`** (increases both `MaxStamina` and current `Stamina` by `+5`)
+   - Store base stats + level bonuses + item bonuses cleanly on the server so morphing, buying/selling items, or editing stats via the CMD panel never overwrites level/item bonuses accidentally.
+3. **Arena of Valor (AoV) Overhead Floating Name Tag (`BillboardGui`):**
+   - Above the player's character (and dummies), display a sleek Arena of Valor style overhead `BillboardGui`:
+     - **Level Badge (Left side of bar):** Shows current Level (`Lv. 1` .. `Lv. 10`) and a thin **EXP progress bar** (`EXP / ((Level * 100) + Level)`).
+     - **Player / Character Name** above the bar.
+     - **HP Bar + Lost HP Bar:** Green fill for current HP, a smooth trailing white/red **Lost HP** sub-bar showing recently lost/missing health, and crisp text (`CurrentHP / MaxHP`).
+     - **Stamina Bar + Lost Stamina Bar:** Cyan fill for current Stamina with a trailing **Lost Stamina** indicator underneath the HP bar.

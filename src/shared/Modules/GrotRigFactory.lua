@@ -126,8 +126,11 @@ local function getInstanceSize(inst: Instance): Vector3
 end
 
 --[[
-    Extracts the relative CFrame offsets of the 6 body parts relative to Grot_hitbox
-    using true bounding box centers. Guarantees 0 floating or stretching.
+    Extracts the relative CFrame offsets of the 6 body parts relative to an upright,
+    forward-normalized Grot_hitbox reference frame.
+    Uses consistent axis-aligned CFrame positioned at boxCF.Position to eliminate
+    random rotation changes from Studio GetBoundingBox(), preventing floating, detaching,
+    twisting sideways, or stacking limbs into a tower.
 --]]
 function GrotRigFactory.ExtractPoseFromModel(model: Instance): { [string]: CFrame }
 	local pose = {}
@@ -137,14 +140,25 @@ function GrotRigFactory.ExtractPoseFromModel(model: Instance): { [string]: CFram
 	if not rootPart then
 		rootPart = model:FindFirstChild("HumanoidRootPart", true) or model.PrimaryPart
 	end
+	if not rootPart then return pose end
 
-	local rootCFrame = rootPart and rootPart.CFrame or model:GetPivot()
+	-- Compute an upright, forward-normalized reference CFrame for Grot_hitbox
+	local rootPos = rootPart.Position
+	local flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+	if flatLook.Magnitude < 0.01 then
+		flatLook = Vector3.new(0, 0, -1)
+	else
+		flatLook = flatLook.Unit
+	end
+	local uprightHitboxCF = CFrame.lookAt(rootPos, rootPos + flatLook, Vector3.yAxis)
 
 	for _, limbName in ipairs(LIMB_NAMES) do
 		local limb = model:FindFirstChild(limbName, true)
 		if limb then
-			local limbCF = getLimbBoundingBox(limb)
-			pose[limbName] = rootCFrame:ToObjectSpace(limbCF)
+			local boxCF, _ = getLimbBoundingBox(limb)
+			-- Axis-aligned CFrame positioned at boxCF.Position relative to uprightHitboxCF:
+			local limbAxisAlignedCF = CFrame.new(boxCF.Position)
+			pose[limbName] = uprightHitboxCF:ToObjectSpace(limbAxisAlignedCF)
 		else
 			pose[limbName] = CFrame.identity
 		end
@@ -231,12 +245,13 @@ end
 
 --[[
     Calculates the relative offset and size between Grot_S1interhitbox and Grot_S1hitbox.
-    Used for Skill 1 ("Vine") line area in front of Grot.
+    Uses the exact same direction-normalized basis studioBasisCF so it lies flat on the floor
+    and extends directly forward along HumanoidRootPart.LookVector.
 --]]
 function GrotRigFactory.ExtractS1HitboxData(): { Offset: CFrame, Size: Vector3 }
 	if cachedS1HitboxData then return cachedS1HitboxData end
 
-	local folder = ReplicatedStorage:FindFirstChild("GrotAssets") or Workspace
+	local folder = ReplicatedStorage:FindFirstChild("GrotAssets") or Workspace:FindFirstChild("Grot") or Workspace
 	local interhitbox = folder:FindFirstChild("Grot_S1interhitbox")
 	local hitbox = folder:FindFirstChild("Grot_S1hitbox")
 
@@ -244,17 +259,15 @@ function GrotRigFactory.ExtractS1HitboxData(): { Offset: CFrame, Size: Vector3 }
 	local size = Vector3.new(6, 6, 16)
 
 	if interhitbox and hitbox then
-		local centerCFrame = getInstanceCFrame(interhitbox)
-		local attackCFrame = getInstanceCFrame(hitbox)
-		local rawOffset = centerCFrame:ToObjectSpace(attackCFrame)
+		local interCF = getInstanceCFrame(interhitbox)
+		local hitCF = getInstanceCFrame(hitbox)
 		size = getInstanceSize(hitbox)
 
-		-- Ensure forward offset along LookVector is strictly negative Z
-		local forwardDist = math.abs(rawOffset.Z)
-		if forwardDist < 4.0 then
-			forwardDist = 8.0
-		end
-		offset = CFrame.new(rawOffset.X, rawOffset.Y, -forwardDist)
+		-- Direction from Grot_S1interhitbox to Grot_S1hitbox on flat X-Z plane in Studio:
+		local diff = Vector3.new(hitCF.Position.X - interCF.Position.X, 0, hitCF.Position.Z - interCF.Position.Z)
+		local studioForward = diff.Magnitude > 0.01 and diff.Unit or Vector3.new(0, 0, -1)
+		local studioBasisCF = CFrame.lookAt(interCF.Position, interCF.Position + studioForward, Vector3.yAxis)
+		offset = studioBasisCF:ToObjectSpace(hitCF)
 	end
 
 	cachedS1HitboxData = {
@@ -269,7 +282,10 @@ local cachedSkillAreaFrames = {}
 
 --[[
     Extracts the REAL "Skill area" model data inside Grot_S1frame1..5 (or Grot["Skill area"]).
-    Computes exact relative CFrames for all BasePart descendants relative to frame Grot_hitbox.
+    Computes true forward direction from Grot_hitbox to "Skill area" on the flat X-Z plane in Studio:
+      local studioForward = Vector3.new(areaCF.Position.X - frameHitbox.Position.X, 0, areaCF.Position.Z - frameHitbox.Position.Z).Unit
+      local studioBasisCF = CFrame.lookAt(frameHitbox.Position, frameHitbox.Position + studioForward, Vector3.yAxis)
+      local relCF = studioBasisCF:ToObjectSpace(part.CFrame)
 --]]
 function GrotRigFactory.ExtractSkillAreaFrameData(frameIndex: number)
 	if cachedSkillAreaFrames[frameIndex] then
@@ -306,16 +322,25 @@ function GrotRigFactory.ExtractSkillAreaFrameData(frameIndex: number)
 		return nil
 	end
 
-	local frameGrotHitbox = frameModel and frameModel:FindFirstChild("Grot_hitbox", true) :: BasePart?
-	if not frameGrotHitbox then
-		frameGrotHitbox = frameModel and frameModel:FindFirstChild("HumanoidRootPart", true) :: BasePart?
+	local frameHitbox = frameModel and frameModel:FindFirstChild("Grot_hitbox", true) :: BasePart?
+	if not frameHitbox then
+		frameHitbox = frameModel and frameModel:FindFirstChild("HumanoidRootPart", true) :: BasePart?
 	end
-	local refCFrame = frameGrotHitbox and frameGrotHitbox.CFrame or skillAreaModel:GetPivot()
+
+	local studioBasisCF: CFrame
+	if frameHitbox then
+		local areaCF, _ = skillAreaModel:GetBoundingBox()
+		local diff = Vector3.new(areaCF.Position.X - frameHitbox.Position.X, 0, areaCF.Position.Z - frameHitbox.Position.Z)
+		local studioForward = diff.Magnitude > 0.01 and diff.Unit or Vector3.new(0, 0, -1)
+		studioBasisCF = CFrame.lookAt(frameHitbox.Position, frameHitbox.Position + studioForward, Vector3.yAxis)
+	else
+		studioBasisCF = skillAreaModel:GetPivot()
+	end
 
 	local partsData = {}
 	for _, desc in ipairs(skillAreaModel:GetDescendants()) do
 		if desc:IsA("BasePart") then
-			local relCF = refCFrame:ToObjectSpace(desc.CFrame)
+			local relCF = studioBasisCF:ToObjectSpace(desc.CFrame)
 			table.insert(partsData, {
 				Name = desc.Name,
 				Template = desc,
@@ -331,8 +356,8 @@ function GrotRigFactory.ExtractSkillAreaFrameData(frameIndex: number)
 	cachedSkillAreaFrames[frameIndex] = {
 		Model = skillAreaModel,
 		PartsData = partsData,
-		RefCFrame = refCFrame,
-		FrameHitbox = frameGrotHitbox,
+		StudioBasisCF = studioBasisCF,
+		FrameHitbox = frameHitbox,
 	}
 	return cachedSkillAreaFrames[frameIndex]
 end
@@ -340,20 +365,25 @@ end
 --[[
     Spawns the REAL "Skill area" model for a specific frame (1..5),
     positioning each BasePart descendant flat on the floor in front of Grot:
-    Compute each part's CFrame relative to Grot_hitbox in source model (relCF = frameHitbox.CFrame:ToObjectSpace(part.CFrame))
-    and position cloned visual relative to Grot's live Grot_hitbox in the world (liveHitbox.CFrame * relCF).
-    Returns the spawned Model and part relative offsets for live spin/aim tracking.
+      local playerFlatLook = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z).Unit
+      local playerBasisCF = CFrame.lookAt(hrp.Position, hrp.Position + playerFlatLook, Vector3.yAxis)
+      clonedPart.CFrame = playerBasisCF * relCF
+    Returns the spawned Model and relative offset dictionary for live spin/aim tracking.
 --]]
 function GrotRigFactory.SpawnSkillAreaForFrame(frameIndex: number, character: Model): (Model?, { [BasePart]: CFrame }?)
 	local frameData = GrotRigFactory.ExtractSkillAreaFrameData(frameIndex)
-	local liveHitbox = character:FindFirstChild("Grot_hitbox") :: BasePart?
-		or character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		or character:FindFirstChild("Grot_hitbox") :: BasePart?
 		or character.PrimaryPart
-	if not liveHitbox then return nil, nil end
+	if not hrp then return nil, nil end
 
 	if not frameData or not frameData.Model or #frameData.PartsData == 0 then
 		return nil, nil
 	end
+
+	local flatVec = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
+	local playerFlatLook = flatVec.Magnitude > 0.01 and flatVec.Unit or Vector3.new(0, 0, -1)
+	local playerBasisCF = CFrame.lookAt(hrp.Position, hrp.Position + playerFlatLook, Vector3.yAxis)
 
 	local clone = frameData.Model:Clone()
 	clone.Name = "SkillArea_Frame" .. tostring(frameIndex)
@@ -370,7 +400,7 @@ function GrotRigFactory.SpawnSkillAreaForFrame(frameIndex: number, character: Mo
 
 			local relCF = partInfo.RelCFrame
 			partOffsets[partInstance] = relCF
-			partInstance.CFrame = liveHitbox.CFrame * relCF
+			partInstance.CFrame = playerBasisCF * relCF
 		end
 	end
 
@@ -492,17 +522,27 @@ function GrotRigFactory.CreateGrotModel(): Model
 
 	model.PrimaryPart = hrp
 
+	-- Upright, forward-normalized reference CFrame for Grot_hitbox
+	local rootPos = grotHitbox.Position
+	local flatLook = Vector3.new(grotHitbox.CFrame.LookVector.X, 0, grotHitbox.CFrame.LookVector.Z)
+	if flatLook.Magnitude < 0.01 then
+		flatLook = Vector3.new(0, 0, -1)
+	else
+		flatLook = flatLook.Unit
+	end
+	local uprightHitboxCF = CFrame.lookAt(rootPos, rootPos + flatLook, Vector3.yAxis)
+
 	-- 3. Rig the 6 Limbs using true Bounding Box proxy parts (LimbPivot)
 	for _, limbName in ipairs(LIMB_NAMES) do
 		local limb = model:FindFirstChild(limbName, true)
 		if limb then
-			local limbCF, _ = getLimbBoundingBox(limb)
+			local boxCF, _ = getLimbBoundingBox(limb)
 
-			-- Create invisible proxy Part positioned at exact bounding box center
+			-- Create invisible proxy Part positioned at exact bounding box center (consistent axis-aligned CFrame)
 			local limbPivot = Instance.new("Part")
 			limbPivot.Name = limbName .. "_Pivot"
 			limbPivot.Size = Vector3.new(0.2, 0.2, 0.2)
-			limbPivot.CFrame = limbCF
+			limbPivot.CFrame = CFrame.new(boxCF.Position)
 			limbPivot.Transparency = 1
 			limbPivot.CanCollide = false
 			limbPivot.CanTouch = false
@@ -510,7 +550,7 @@ function GrotRigFactory.CreateGrotModel(): Model
 			limbPivot.Massless = true
 			limbPivot.Parent = limb
 
-			-- Weld all voxel sub-parts cleanly to limbPivot
+			-- Weld all voxel sub-parts cleanly to limbPivot (Anchored = false, CanCollide = false, Massless = true)
 			for _, desc in ipairs(limb:GetDescendants()) do
 				if desc:IsA("BasePart") and desc ~= limbPivot then
 					desc.Anchored = false
@@ -529,7 +569,7 @@ function GrotRigFactory.CreateGrotModel(): Model
 			motor.Name = limbName
 			motor.Part0 = grotHitbox
 			motor.Part1 = limbPivot
-			motor.C0 = idlePose[limbName] or grotHitbox.CFrame:ToObjectSpace(limbCF)
+			motor.C0 = idlePose[limbName] or uprightHitboxCF:ToObjectSpace(CFrame.new(boxCF.Position))
 			motor.C1 = CFrame.identity
 			motor.Parent = grotHitbox
 		end
@@ -632,7 +672,8 @@ function GrotRigFactory.MorphPlayer(player: Player): Model
 	local humanoid = grotModel:FindFirstChild("Humanoid") :: Humanoid
 	if humanoid then
 		humanoid.HealthChanged:Connect(function(newHealth)
-			grotModel:SetAttribute("Health", math.clamp(newHealth, 0, 250))
+			local maxHp = grotModel:GetAttribute("MaxHealth") or 250
+			grotModel:SetAttribute("Health", math.clamp(newHealth, 0, maxHp))
 		end)
 
 		local hasDied = false
@@ -657,6 +698,18 @@ function GrotRigFactory.MorphPlayer(player: Player): Model
 	end
 
 	player.Character = grotModel
+
+	-- Sync Level bonuses and Item stats cleanly on server
+	local RunService = game:GetService("RunService")
+	if RunService:IsServer() then
+		local ServerScriptService = game:GetService("ServerScriptService")
+		pcall(function()
+			local LevelHandler = require(ServerScriptService.Handlers.LevelHandler)
+			local ShopHandler = require(ServerScriptService.Handlers.ShopHandler)
+			LevelHandler.RecalculateCharacterStats(player, grotModel)
+			ShopHandler.SyncToCharacter(player, grotModel)
+		end)
+	end
 
 	local cameraResetRemote = RemoteManager.GetRemoteEvent("ResetCameraSubject")
 	cameraResetRemote:FireClient(player, grotModel)

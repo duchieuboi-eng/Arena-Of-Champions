@@ -61,14 +61,17 @@ function ShopController.Init()
 	screenGui.Parent = playerGui
 
 	-- 2. Sleek AoV Style HUD Shop Button
-	-- Placed on the bottom-left of screen directly above HUD drawer or top left
+	-- Placed on the bottom-left of screen directly above HUD drawer showing "🪙 0G - SHOP"
 	shopButton = Instance.new("TextButton")
 	shopButton.Name = "HUDShopButton"
-	shopButton.Size = UDim2.new(0, 140, 0, 36)
+	shopButton.Size = UDim2.new(0, 150, 0, 32)
 	shopButton.Position = UDim2.new(0, 30, 1, -182)
 	shopButton.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
 	shopButton.BackgroundTransparency = 0.15
-	shopButton.Text = ""
+	shopButton.Font = Enum.Font.GothamBold
+	shopButton.Text = "🪙 0G - SHOP"
+	shopButton.TextColor3 = Color3.fromRGB(255, 215, 0)
+	shopButton.TextSize = 12
 	shopButton.BorderSizePixel = 0
 	shopButton.Parent = screenGui
 
@@ -81,38 +84,6 @@ function ShopController.Init()
 	btnStroke.Thickness = 1.2
 	btnStroke.Parent = shopButton
 
-	local shopIconLabel = Instance.new("TextLabel")
-	shopIconLabel.Size = UDim2.new(0, 28, 1, 0)
-	shopIconLabel.Position = UDim2.new(0, 6, 0, 0)
-	shopIconLabel.BackgroundTransparency = 1
-	shopIconLabel.Font = Enum.Font.GothamBold
-	shopIconLabel.Text = "🛒"
-	shopIconLabel.TextSize = 16
-	shopIconLabel.Parent = shopButton
-
-	local shopTitle = Instance.new("TextLabel")
-	shopTitle.Size = UDim2.new(0, 45, 1, 0)
-	shopTitle.Position = UDim2.new(0, 34, 0, 0)
-	shopTitle.BackgroundTransparency = 1
-	shopTitle.Font = Enum.Font.GothamBlack
-	shopTitle.Text = "SHOP"
-	shopTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
-	shopTitle.TextSize = 12
-	shopTitle.TextXAlignment = Enum.TextXAlignment.Left
-	shopTitle.Parent = shopButton
-
-	goldCounterLabel = Instance.new("TextLabel")
-	goldCounterLabel.Name = "GoldCounterLabel"
-	goldCounterLabel.Size = UDim2.new(1, -85, 1, 0)
-	goldCounterLabel.Position = UDim2.new(0, 80, 0, 0)
-	goldCounterLabel.BackgroundTransparency = 1
-	goldCounterLabel.Font = Enum.Font.GothamBold
-	goldCounterLabel.Text = "0G"
-	goldCounterLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-	goldCounterLabel.TextSize = 12
-	goldCounterLabel.TextXAlignment = Enum.TextXAlignment.Right
-	goldCounterLabel.Parent = shopButton
-
 	shopButton.MouseButton1Click:Connect(function()
 		ShopController.Toggle()
 	end)
@@ -120,10 +91,140 @@ function ShopController.Init()
 	-- Update Gold counter whenever player or character attribute changes
 	local function updateGoldDisplay()
 		local gold = LocalPlayer:GetAttribute("Gold") or 0
-		goldCounterLabel.Text = tostring(gold) .. "G"
+		shopButton.Text = string.format("🪙 %dG - SHOP", gold)
 	end
 	LocalPlayer:GetAttributeChangedSignal("Gold"):Connect(updateGoldDisplay)
 	updateGoldDisplay()
+
+	-- =========================================================================
+	-- 2b. Compact Arena of Valor 3-Slot Item Inventory Bar on the HUD (next to skills)
+	-- =========================================================================
+	local hudItemBar = Instance.new("Frame")
+	hudItemBar.Name = "HUDItemInventoryBar"
+	hudItemBar.Size = UDim2.new(0, 140, 0, 105)
+	hudItemBar.Position = UDim2.new(0, 630, 1, -135)
+	hudItemBar.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
+	hudItemBar.BackgroundTransparency = 0.25
+	hudItemBar.BorderSizePixel = 0
+	hudItemBar.Parent = screenGui
+
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 12)
+	barCorner.Parent = hudItemBar
+
+	local barStroke = Instance.new("UIStroke")
+	barStroke.Color = Color3.fromRGB(45, 50, 65)
+	barStroke.Thickness = 1.5
+	barStroke.Transparency = 0.3
+	barStroke.Parent = hudItemBar
+
+	local barTitle = Instance.new("TextLabel")
+	barTitle.Name = "BarTitle"
+	barTitle.Size = UDim2.new(1, 0, 0, 18)
+	barTitle.Position = UDim2.new(0, 0, 0, 5)
+	barTitle.BackgroundTransparency = 1
+	barTitle.Font = Enum.Font.GothamBlack
+	barTitle.Text = "📦 ITEMS (3)"
+	barTitle.TextColor3 = Color3.fromRGB(255, 200, 50)
+	barTitle.TextSize = 11
+	barTitle.Parent = hudItemBar
+
+	local hudSlotsContainer = Instance.new("Frame")
+	hudSlotsContainer.Size = UDim2.new(1, -10, 0, 74)
+	hudSlotsContainer.Position = UDim2.new(0, 5, 0, 25)
+	hudSlotsContainer.BackgroundTransparency = 1
+	hudSlotsContainer.Parent = hudItemBar
+
+	local hudSlotsLayout = Instance.new("UIListLayout")
+	hudSlotsLayout.FillDirection = Enum.FillDirection.Horizontal
+	hudSlotsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	hudSlotsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	hudSlotsLayout.Padding = UDim.new(0, 4)
+	hudSlotsLayout.Parent = hudSlotsContainer
+
+	for slotIdx = 1, EconomyConfig.MaxInventorySlots do
+		local hudSlotBtn = Instance.new("TextButton")
+		hudSlotBtn.Name = "HUDSlot_" .. tostring(slotIdx)
+		hudSlotBtn.Size = UDim2.new(0, 40, 0, 70)
+		hudSlotBtn.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+		hudSlotBtn.BorderSizePixel = 0
+		hudSlotBtn.Text = ""
+		hudSlotBtn.AutoButtonColor = true
+		hudSlotBtn.Parent = hudSlotsContainer
+
+		local hCorner = Instance.new("UICorner")
+		hCorner.CornerRadius = UDim.new(0, 6)
+		hCorner.Parent = hudSlotBtn
+
+		local hStroke = Instance.new("UIStroke")
+		hStroke.Color = Color3.fromRGB(55, 65, 85)
+		hStroke.Thickness = 1
+		hStroke.Parent = hudSlotBtn
+
+		local numLabel = Instance.new("TextLabel")
+		numLabel.Size = UDim2.new(1, 0, 0, 14)
+		numLabel.Position = UDim2.new(0, 0, 0, 2)
+		numLabel.BackgroundTransparency = 1
+		numLabel.Font = Enum.Font.GothamBold
+		numLabel.Text = "[" .. tostring(slotIdx) .. "]"
+		numLabel.TextColor3 = Color3.fromRGB(130, 145, 170)
+		numLabel.TextSize = 8
+		numLabel.Parent = hudSlotBtn
+
+		local iconLabel = Instance.new("TextLabel")
+		iconLabel.Size = UDim2.new(1, 0, 0, 28)
+		iconLabel.Position = UDim2.new(0, 0, 0, 16)
+		iconLabel.BackgroundTransparency = 1
+		iconLabel.Font = Enum.Font.GothamBlack
+		iconLabel.Text = "+"
+		iconLabel.TextColor3 = Color3.fromRGB(70, 85, 110)
+		iconLabel.TextSize = 18
+		iconLabel.Parent = hudSlotBtn
+
+		local actionLabel = Instance.new("TextLabel")
+		actionLabel.Size = UDim2.new(1, 0, 0, 18)
+		actionLabel.Position = UDim2.new(0, 0, 1, -20)
+		actionLabel.BackgroundTransparency = 1
+		actionLabel.Font = Enum.Font.GothamBold
+		actionLabel.Text = "SHOP"
+		actionLabel.TextColor3 = Color3.fromRGB(100, 120, 150)
+		actionLabel.TextSize = 7
+		actionLabel.Parent = hudSlotBtn
+
+		hudSlotBtn.MouseButton1Click:Connect(function()
+			local currentItemId = LocalPlayer:GetAttribute("ItemSlot" .. tostring(slotIdx))
+			if currentItemId and currentItemId ~= "" then
+				-- Click owned item to sell back for 50%
+				sellItemRemote:FireServer(slotIdx)
+				local item = EconomyConfig.Items[currentItemId]
+				showShopFeedback(string.format("Sold %s for %dG!", item and item.Name or "item", item and item.SellPrice or 0))
+			else
+				-- Empty slot: open shop
+				ShopController.Open()
+			end
+		end)
+
+		local function updateHUDSlot()
+			local itemId = LocalPlayer:GetAttribute("ItemSlot" .. tostring(slotIdx))
+			if itemId and itemId ~= "" and EconomyConfig.Items[itemId] then
+				local item = EconomyConfig.Items[itemId]
+				iconLabel.Text = item.Icon
+				iconLabel.TextSize = 18
+				actionLabel.Text = "SELL (" .. tostring(item.SellPrice) .. "G)"
+				actionLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+				hStroke.Color = Color3.fromRGB(255, 200, 60)
+			else
+				iconLabel.Text = "+"
+				iconLabel.TextSize = 18
+				actionLabel.Text = "SHOP"
+				actionLabel.TextColor3 = Color3.fromRGB(100, 120, 150)
+				hStroke.Color = Color3.fromRGB(55, 65, 85)
+			end
+		end
+
+		LocalPlayer:GetAttributeChangedSignal("ItemSlot" .. tostring(slotIdx)):Connect(updateHUDSlot)
+		updateHUDSlot()
+	end
 
 	-- 3. Main AoV Shop Modal Window
 	shopModal = Instance.new("Frame")

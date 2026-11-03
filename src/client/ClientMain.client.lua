@@ -15,6 +15,17 @@ local Controllers = PlayerScripts:WaitForChild("Controllers")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteManager = require(Shared.Modules.RemoteManager)
 
+-- Disable Roblox Backpack CoreGui on startup to prevent backquote toggle conflicts
+task.spawn(function()
+	for i = 1, 20 do
+		local ok = pcall(function()
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+		end)
+		if ok then break end
+		task.wait(0.2)
+	end
+end)
+
 local InputController = require(Controllers:WaitForChild("InputController"))
 local HUDController = require(Controllers:WaitForChild("HUDController"))
 local CombatController = require(Controllers:WaitForChild("CombatController"))

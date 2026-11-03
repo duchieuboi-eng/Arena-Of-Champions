@@ -282,13 +282,19 @@ function GrotAnimationController.PlayS1(character: Model)
 				activeSkillAreaModel, activePartOffsets = GrotRigFactory.SpawnSkillAreaForFrame(i, character)
 
 				-- Follow Grot's live rotation as the player aims during this frame
-				if activePartOffsets and grotHitbox then
+				if activePartOffsets then
 					spinFollowConnection = RunService.RenderStepped:Connect(function()
-						local currentHitbox = character:FindFirstChild("Grot_hitbox") or character:FindFirstChild("HumanoidRootPart") :: BasePart?
-						if not currentHitbox or not currentHitbox.Parent then return end
+						local liveHrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+							or character:FindFirstChild("Grot_hitbox") :: BasePart?
+						if not liveHrp or not liveHrp.Parent then return end
+
+						local flatVec = Vector3.new(liveHrp.CFrame.LookVector.X, 0, liveHrp.CFrame.LookVector.Z)
+						local playerFlatLook = flatVec.Magnitude > 0.01 and flatVec.Unit or Vector3.new(0, 0, -1)
+						local playerBasisCF = CFrame.lookAt(liveHrp.Position, liveHrp.Position + playerFlatLook, Vector3.yAxis)
+
 						for part, relCF in pairs(activePartOffsets) do
 							if part and part.Parent then
-								part.CFrame = currentHitbox.CFrame * relCF
+								part.CFrame = playerBasisCF * relCF
 							end
 						end
 					end)
@@ -305,19 +311,15 @@ function GrotAnimationController.PlayS1(character: Model)
 				humanoid.AutoRotate = false
 			end
 
-			local liveRoot = character:FindFirstChild("Grot_hitbox") or character:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local lockedOrientationCFrame = liveRoot and liveRoot.CFrame or CFrame.identity
+			local liveHrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				or character:FindFirstChild("Grot_hitbox") :: BasePart?
+			local lockedOrientationCFrame = liveHrp and liveHrp.CFrame or CFrame.identity
 
 			-- Disconnect live spin follower and spawn final Frame 5 spiky Skill area model
 			cleanupActiveVisual()
 
-			local frame5Model, frame5Offsets = GrotRigFactory.SpawnSkillAreaForFrame(5, character)
-			if frame5Model and frame5Offsets and lockedOrientationCFrame then
-				for part, relCF in pairs(frame5Offsets) do
-					if part and part.Parent then
-						part.CFrame = lockedOrientationCFrame * relCF
-					end
-				end
+			local frame5Model, _ = GrotRigFactory.SpawnSkillAreaForFrame(5, character)
+			if frame5Model then
 				-- Leave Frame 5 spiky model anchored in the world for 3.0s!
 				Debris:AddItem(frame5Model, 3.0)
 			end

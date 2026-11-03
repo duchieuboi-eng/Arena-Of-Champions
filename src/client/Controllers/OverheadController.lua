@@ -52,7 +52,7 @@ function OverheadController.Attach(character: Model)
 	-- 1. BillboardGui
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "AoVOverheadGui"
-	billboard.Size = UDim2.new(0, 185, 0, 52)
+	billboard.Size = UDim2.new(0, 195, 0, 52)
 	billboard.StudsOffset = Vector3.new(0, 3.2, 0)
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = 90
@@ -66,59 +66,71 @@ function OverheadController.Attach(character: Model)
 	rootContainer.Parent = billboard
 
 	-- =========================================================================
-	-- ROW 1: NAME & [ LV. X ] BADGE
+	-- TOP ROW: PLAYER / CHARACTER NAME (Centered above the bar)
 	-- =========================================================================
-	local headerFrame = Instance.new("Frame")
-	headerFrame.Size = UDim2.new(1, 0, 0, 16)
-	headerFrame.Position = UDim2.new(0, 0, 0, 0)
-	headerFrame.BackgroundTransparency = 1
-	headerFrame.Parent = rootContainer
-
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "NameLabel"
-	nameLabel.Size = UDim2.new(1, -55, 1, 0)
+	nameLabel.Size = UDim2.new(1, 0, 0, 16)
 	nameLabel.Position = UDim2.new(0, 0, 0, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Enum.Font.GothamBlack
 	nameLabel.Text = character:GetAttribute("CharacterName") or character.Name
 	nameLabel.TextColor3 = Color3.fromRGB(245, 245, 250)
 	nameLabel.TextSize = 11
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.Parent = headerFrame
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+	nameLabel.Parent = rootContainer
 
 	local nameStroke = Instance.new("UIStroke")
 	nameStroke.Color = Color3.fromRGB(0, 0, 0)
 	nameStroke.Thickness = 1.2
 	nameStroke.Parent = nameLabel
 
+	-- =========================================================================
+	-- LEFT SIDE: LEVEL BADGE & THIN EXP PROGRESS BAR
+	-- =========================================================================
+	local levelBadgeFrame = Instance.new("Frame")
+	levelBadgeFrame.Name = "LevelBadgeFrame"
+	levelBadgeFrame.Size = UDim2.new(0, 36, 0, 27)
+	levelBadgeFrame.Position = UDim2.new(0, 0, 0, 18)
+	levelBadgeFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+	levelBadgeFrame.BorderSizePixel = 0
+	levelBadgeFrame.Parent = rootContainer
+
+	local badgeCorner = Instance.new("UICorner")
+	badgeCorner.CornerRadius = UDim.new(0, 4)
+	badgeCorner.Parent = levelBadgeFrame
+
+	local badgeStroke = Instance.new("UIStroke")
+	badgeStroke.Color = Color3.fromRGB(255, 215, 0)
+	badgeStroke.Thickness = 1.2
+	badgeStroke.Parent = levelBadgeFrame
+
 	local levelBadge = Instance.new("TextLabel")
 	levelBadge.Name = "LevelBadge"
-	levelBadge.Size = UDim2.new(0, 52, 1, 0)
-	levelBadge.Position = UDim2.new(1, -52, 0, 0)
+	levelBadge.Size = UDim2.new(1, 0, 1, -4)
+	levelBadge.Position = UDim2.new(0, 0, 0, 0)
 	levelBadge.BackgroundTransparency = 1
-	levelBadge.Font = Enum.Font.GothamBold
-	levelBadge.Text = "[ Lv. " .. tostring(character:GetAttribute("Level") or 1) .. " ]"
+	levelBadge.Font = Enum.Font.GothamBlack
+	levelBadge.Text = "Lv." .. tostring(character:GetAttribute("Level") or 1)
 	levelBadge.TextColor3 = Color3.fromRGB(255, 215, 0)
 	levelBadge.TextSize = 10
-	levelBadge.TextXAlignment = Enum.TextXAlignment.Right
-	levelBadge.Parent = headerFrame
+	levelBadge.TextXAlignment = Enum.TextXAlignment.Center
+	levelBadge.Parent = levelBadgeFrame
 
 	local lvlStroke = Instance.new("UIStroke")
 	lvlStroke.Color = Color3.fromRGB(0, 0, 0)
 	lvlStroke.Thickness = 1.2
 	lvlStroke.Parent = levelBadge
 
-	-- =========================================================================
-	-- ROW 2: CURRENT EXP BAR
-	-- =========================================================================
+	-- Thin EXP Progress Bar attached at bottom of the Level Badge
 	local expBg = Instance.new("Frame")
 	expBg.Name = "EXPBackground"
-	expBg.Size = UDim2.new(1, 0, 0, 3)
-	expBg.Position = UDim2.new(0, 0, 0, 18)
-	expBg.BackgroundColor3 = Color3.fromRGB(20, 24, 32)
+	expBg.Size = UDim2.new(1, -4, 0, 3)
+	expBg.Position = UDim2.new(0, 2, 1, -4)
+	expBg.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 	expBg.BorderSizePixel = 0
 	expBg.ClipsDescendants = true
-	expBg.Parent = rootContainer
+	expBg.Parent = levelBadgeFrame
 
 	local expCorner = Instance.new("UICorner")
 	expCorner.CornerRadius = UDim.new(0, 2)
@@ -136,12 +148,12 @@ function OverheadController.Attach(character: Model)
 	efCorner.Parent = expFill
 
 	-- =========================================================================
-	-- ROW 3: HP BAR + LOST HP INDICATOR
+	-- RIGHT SIDE: HP BAR + LOST HP INDICATOR & STAMINA BAR + LOST STAMINA
 	-- =========================================================================
 	local hpBg = Instance.new("Frame")
 	hpBg.Name = "HPBackground"
-	hpBg.Size = UDim2.new(1, 0, 0, 15)
-	hpBg.Position = UDim2.new(0, 0, 0, 23)
+	hpBg.Size = UDim2.new(1, -42, 0, 16)
+	hpBg.Position = UDim2.new(0, 42, 0, 18)
 	hpBg.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
 	hpBg.BorderSizePixel = 0
 	hpBg.ClipsDescendants = true
@@ -198,13 +210,11 @@ function OverheadController.Attach(character: Model)
 	hTextStroke.Thickness = 1
 	hTextStroke.Parent = hpText
 
-	-- =========================================================================
-	-- ROW 4: STAMINA BAR + LOST STAMINA INDICATOR
-	-- =========================================================================
+	-- STAMINA BAR + LOST STAMINA INDICATOR
 	local staminaBg = Instance.new("Frame")
 	staminaBg.Name = "StaminaBackground"
-	staminaBg.Size = UDim2.new(1, 0, 0, 8)
-	staminaBg.Position = UDim2.new(0, 0, 0, 40)
+	staminaBg.Size = UDim2.new(1, -42, 0, 8)
+	staminaBg.Position = UDim2.new(0, 42, 0, 37)
 	staminaBg.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
 	staminaBg.BorderSizePixel = 0
 	staminaBg.ClipsDescendants = true

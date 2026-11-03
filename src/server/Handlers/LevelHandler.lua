@@ -10,6 +10,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CharacterConfig = require(Shared.Configs.CharacterConfig)
 local EconomyConfig = require(Shared.Configs.EconomyConfig)
 local RemoteManager = require(Shared.Modules.RemoteManager)
 
@@ -44,6 +45,77 @@ function LevelHandler.OnPlayerAdded(player: Player)
 	end
 end
 
+--[[
+    Recalculates and strictly enforces:
+    Total Stat = Base Stat + Level Growth Bonus + Equipped Item Bonuses
+    Guarantees morphing, respawning, buying, selling, or CMD editing never loses or corrupts stats.
+--]]
+function LevelHandler.RecalculateCharacterStats(player: Player, character: Model)
+	if not character or not character.Parent then return end
+
+	local charId = character:GetAttribute("CharacterId") or "Grot"
+	local baseCfg = CharacterConfig[charId] or CharacterConfig.Grot
+
+	-- 1. Base Stats
+	local baseHp = character:GetAttribute("Base_HP") or baseCfg.HP
+	local baseDef = character:GetAttribute("Base_DEF") or baseCfg.DEF
+	local baseStamina = character:GetAttribute("Base_Stamina") or baseCfg.Stamina
+	local basePhys = character:GetAttribute("Base_Physical") or baseCfg.Physical
+	local baseMagic = character:GetAttribute("Base_Magic") or baseCfg.Magic
+
+	-- Cache base stats onto character
+	character:SetAttribute("Base_HP", baseHp)
+	character:SetAttribute("Base_DEF", baseDef)
+	character:SetAttribute("Base_Stamina", baseStamina)
+	character:SetAttribute("Base_Physical", basePhys)
+	character:SetAttribute("Base_Magic", baseMagic)
+
+	-- 2. Level Growth Bonuses
+	local level = player:GetAttribute("Level") or 1
+	local levelUps = math.clamp(level - 1, 0, EconomyConfig.MaxLevel - 1)
+	local growth = EconomyConfig.LevelUpGrowth[charId] or EconomyConfig.LevelUpGrowth.Grot
+
+	local levelHp = levelUps * (growth.HP or 10)
+	local levelDef = levelUps * (growth.DEF or 3)
+	local levelStamina = levelUps * (growth.Stamina or 5)
+
+	-- 3. Equipped Item Bonuses
+	local itemPhys = 0
+	local itemMagic = 0
+	local itemDef = 0
+
+	for i = 1, EconomyConfig.MaxInventorySlots do
+		local itemId = player:GetAttribute("ItemSlot" .. tostring(i))
+		if itemId and itemId ~= "" and EconomyConfig.Items[itemId] then
+			local item = EconomyConfig.Items[itemId]
+			if item.Stats.Physical then itemPhys += item.Stats.Physical end
+			if item.Stats.Magic then itemMagic += item.Stats.Magic end
+			if item.Stats.DEF then itemDef += item.Stats.DEF end
+		end
+	end
+
+	-- 4. Apply Final Combined Stats
+	local totalMaxHp = baseHp + levelHp
+	local totalDef = baseDef + levelDef + itemDef
+	local totalMaxStamina = baseStamina + levelStamina
+	local totalPhys = basePhys + itemPhys
+	local totalMagic = baseMagic + itemMagic
+
+	character:SetAttribute("MaxHealth", totalMaxHp)
+	character:SetAttribute("HP", totalMaxHp)
+	character:SetAttribute("DEF", totalDef)
+	character:SetAttribute("MaxStamina", totalMaxStamina)
+	character:SetAttribute("Physical", totalPhys)
+	character:SetAttribute("Magic", totalMagic)
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.MaxHealth = totalMaxHp
+		humanoid.Health = math.clamp(humanoid.Health, 0, totalMaxHp)
+		character:SetAttribute("Health", humanoid.Health)
+	end
+end
+
 function LevelHandler.SyncToCharacter(player: Player, character: Model)
 	local lvl = player:GetAttribute("Level") or 1
 	local exp = player:GetAttribute("EXP") or 0
@@ -52,6 +124,8 @@ function LevelHandler.SyncToCharacter(player: Player, character: Model)
 	character:SetAttribute("Level", lvl)
 	character:SetAttribute("EXP", exp)
 	character:SetAttribute("NextLevelEXP", req)
+
+	LevelHandler.RecalculateCharacterStats(player, character)
 end
 
 function LevelHandler.AddExp(player: Player, amount: number)
@@ -66,58 +140,38 @@ function LevelHandler.AddExp(player: Player, amount: number)
 	local reqExp = EconomyConfig.GetRequiredExp(currentLevel)
 
 	local leveledUp = false
+	local levelsGained = 0
 
 	while currentLevel < EconomyConfig.MaxLevel and currentExp >= reqExp do
 		currentExp -= reqExp
 		currentLevel += 1
+		levelsGained += 1
 		reqExp = EconomyConfig.GetRequiredExp(currentLevel)
 		leveledUp = true
-
-		-- Apply Permanent Stat Growth per Level Up
-		local character = player.Character
-		if character then
-			local charId = character:GetAttribute("CharacterId") or "Unmorphed"
-			local growth = EconomyConfig.LevelUpGrowth[charId] or EconomyConfig.LevelUpGrowth.Grot
-
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-			-- 1. DEF Growth
-			if growth.DEF then
-				local currentDef = character:GetAttribute("DEF") or 0
-				character:SetAttribute("DEF", currentDef + growth.DEF)
-			end
-
-			-- 2. HP Growth (+10 HP, MaxHealth +10, instant heal +10)
-			if growth.HP then
-				local currentMaxHp = character:GetAttribute("MaxHealth") or 100
-				local newMaxHp = currentMaxHp + growth.HP
-				character:SetAttribute("MaxHealth", newMaxHp)
-				character:SetAttribute("HP", newMaxHp)
-
-				if humanoid then
-					humanoid.MaxHealth = newMaxHp
-					humanoid.Health = math.min(newMaxHp, humanoid.Health + growth.HP)
-					character:SetAttribute("Health", humanoid.Health)
-				end
-			end
-
-			-- 3. Stamina Growth (+5 Stamina, MaxStamina +5)
-			if growth.Stamina then
-				local currentMaxStamina = character:GetAttribute("MaxStamina") or 100
-				local newMaxStamina = currentMaxStamina + growth.Stamina
-				character:SetAttribute("MaxStamina", newMaxStamina)
-				local curStamina = character:GetAttribute("Stamina") or currentMaxStamina
-				character:SetAttribute("Stamina", math.min(newMaxStamina, curStamina + growth.Stamina))
-			end
-		end
 	end
 
 	player:SetAttribute("Level", currentLevel)
 	player:SetAttribute("EXP", currentExp)
 	player:SetAttribute("NextLevelEXP", reqExp)
 
-	if player.Character then
-		LevelHandler.SyncToCharacter(player, player.Character)
+	local character = player.Character
+	if character then
+		LevelHandler.SyncToCharacter(player, character)
+
+		-- Level-up instant heals (+10 HP and +5 Stamina per level gained)
+		if levelsGained > 0 then
+			local charId = character:GetAttribute("CharacterId") or "Grot"
+			local growth = EconomyConfig.LevelUpGrowth[charId] or EconomyConfig.LevelUpGrowth.Grot
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				local newHp = math.min(character:GetAttribute("MaxHealth") or 250, humanoid.Health + ((growth.HP or 10) * levelsGained))
+				humanoid.Health = newHp
+				character:SetAttribute("Health", newHp)
+			end
+			local curStamina = character:GetAttribute("Stamina") or 75
+			local newStamina = math.min(character:GetAttribute("MaxStamina") or 75, curStamina + ((growth.Stamina or 5) * levelsGained))
+			character:SetAttribute("Stamina", newStamina)
+		end
 	end
 
 	if leveledUp then

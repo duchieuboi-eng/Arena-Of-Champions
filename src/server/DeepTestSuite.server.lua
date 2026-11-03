@@ -231,8 +231,73 @@ assertTest("Grot DEF increased to 18 (15 + 3)", testChar:GetAttribute("DEF") == 
 assertTest("Grot MaxHealth increased to 260 (250 + 10)", testChar:GetAttribute("MaxHealth") == 260)
 assertTest("Grot MaxStamina increased to 80 (75 + 5)", testChar:GetAttribute("MaxStamina") == 80)
 
+-- =============================================================================
+-- TEST 8b: Item Shop Buy, Sell & Stat Recalculation Simulation
+-- =============================================================================
+print("\n--- Test Group 8b: Item Shop Buy, Sell & Stat Recalculation ---")
+testPlayer:SetAttribute("Gold", 500)
+testPlayer:SetAttribute("ItemSlot1", "")
+testPlayer:SetAttribute("ItemSlot2", "")
+testPlayer:SetAttribute("ItemSlot3", "")
+
+-- 1. Buy Shortsword (150G -> +10 Physical)
+ShopHandler.HandleBuyItem(testPlayer, "Shortsword")
+assertTest("Shortsword bought: Gold deducted to 350G (500 - 150)", testPlayer:GetAttribute("Gold") == 350)
+assertTest("Shortsword equipped in Slot 1", testPlayer:GetAttribute("ItemSlot1") == "Shortsword")
+assertTest("Character Physical increased to 35 (25 base + 10 item)", testChar:GetAttribute("Physical") == 35)
+
+-- 2. Buy Leather armor (300G -> +5 DEF)
+ShopHandler.HandleBuyItem(testPlayer, "LeatherArmor")
+assertTest("Leather armor bought: Gold deducted to 50G (350 - 300)", testPlayer:GetAttribute("Gold") == 50)
+assertTest("Leather armor equipped in Slot 2", testPlayer:GetAttribute("ItemSlot2") == "LeatherArmor")
+assertTest("Character DEF increased to 23 (15 base + 3 lv + 5 item)", testChar:GetAttribute("DEF") == 23)
+
+-- 3. Sell Leather armor (50% refund = +150G -> removes +5 DEF)
+ShopHandler.HandleSellItem(testPlayer, 2)
+assertTest("Leather armor sold: Gold refunded to 200G (50 + 150)", testPlayer:GetAttribute("Gold") == 200)
+assertTest("Slot 2 is now empty", testPlayer:GetAttribute("ItemSlot2") == "")
+assertTest("Character DEF decreased back to 18 (15 base + 3 lv)", testChar:GetAttribute("DEF") == 18)
+
+-- =============================================================================
+-- TEST 8c: Dummy Defeat Kill Rewards (+100G, +100 EXP)
+-- =============================================================================
+print("\n--- Test Group 8c: Dummy Defeat Kill Rewards ---")
+local prevGold = testPlayer:GetAttribute("Gold") or 0
+local prevExp = testPlayer:GetAttribute("EXP") or 0
+local dummyTest = Instance.new("Model")
+dummyTest.Name = "RewardDummy"
+ShopHandler.AwardDummyKill(testPlayer, dummyTest)
+dummyTest:Destroy()
+
+assertTest("Dummy kill awards +100 Gold", testPlayer:GetAttribute("Gold") == prevGold + 100)
+assertTest("Dummy kill awards +100 EXP", testPlayer:GetAttribute("EXP") == prevExp + 100)
+
 testChar:Destroy()
 testPlayer:Destroy()
+
+-- =============================================================================
+-- TEST 8d: Direction-Normalized Basis & Limb Rigging
+-- =============================================================================
+print("\n--- Test Group 8d: Direction-Normalized Basis & Limb Rigging ---")
+local testPoseModel = Instance.new("Model")
+testPoseModel.Name = "TestPoseGrot"
+local testGrotHitbox = Instance.new("Part")
+testGrotHitbox.Name = "Grot_hitbox"
+testGrotHitbox.CFrame = CFrame.new(0, 0, 0)
+testGrotHitbox.Parent = testPoseModel
+local testLimb = Instance.new("Part")
+testLimb.Name = "Torso"
+testLimb.CFrame = CFrame.new(0, 2, 0) * CFrame.Angles(math.rad(45), 0, 0) -- intentionally tilted
+testLimb.Parent = testPoseModel
+
+local extractedPose = GrotRigFactory.ExtractPoseFromModel(testPoseModel)
+assertTest("Extracted pose has Torso", extractedPose.Torso ~= nil)
+if extractedPose.Torso then
+	-- Position offset should match center without random rotation twist
+	local posDiff = (extractedPose.Torso.Position - Vector3.new(0, 2, 0)).Magnitude
+	assertTest("Limb center is strictly axis-aligned at true center position", posDiff < 0.1)
+end
+testPoseModel:Destroy()
 
 -- =============================================================================
 -- TEST 9: Dummy Spawner Types

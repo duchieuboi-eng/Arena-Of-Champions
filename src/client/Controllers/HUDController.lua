@@ -58,6 +58,17 @@ local STAT_DISPLAY_LIST = {
 }
 
 function HUDController.Init()
+	-- Disable Roblox Backpack CoreGui on startup to prevent backquote conflicts
+	task.spawn(function()
+		for i = 1, 20 do
+			local ok = pcall(function()
+				game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+			end)
+			if ok then break end
+			task.wait(0.2)
+		end
+	end)
+
 	HUDController.BuildUI()
 
 	LocalPlayer.CharacterAdded:Connect(HUDController.BindCharacter)

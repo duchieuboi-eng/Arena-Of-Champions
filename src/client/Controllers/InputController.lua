@@ -40,17 +40,17 @@ function InputController.DisableRobloxDefaultShiftLock()
 	localPlayer.DevEnableMouseLock = false
 
 	-- Disable Backpack CoreGui to stop default backtick inventory popups
+	-- and continuously unbind Roblox's native MouseLockSwitchAction
 	task.spawn(function()
-		for i = 1, 10 do
+		for i = 1, 20 do
 			pcall(function()
 				StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 			end)
-			task.wait(0.3)
+			pcall(function()
+				ContextActionService:UnbindAction("MouseLockSwitchAction")
+			end)
+			task.wait(0.2)
 		end
-	end)
-
-	pcall(function()
-		ContextActionService:UnbindAction("MouseLockSwitchAction")
 	end)
 
 	local playerScripts = localPlayer:WaitForChild("PlayerScripts")
@@ -152,6 +152,9 @@ function InputController.Init()
 
 	-- Handle character respawn / reset
 	Players.LocalPlayer.CharacterAdded:Connect(function(newChar)
+		pcall(function()
+			ContextActionService:UnbindAction("MouseLockSwitchAction")
+		end)
 		if isShiftLockActive then
 			local hum = newChar:WaitForChild("Humanoid", 5) :: Humanoid?
 			if hum then

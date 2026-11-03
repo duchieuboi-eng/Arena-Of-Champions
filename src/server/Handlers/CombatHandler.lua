@@ -260,20 +260,18 @@ function CombatHandler.ProcessAttack(player: Player, attackType: string)
 			end
 			if not character or not character.Parent or not rootPart then return end
 
-			-- Capture final orientation where Grot faced at Frame 5
-			local finalFacingCFrame = rootPart.CFrame
+			-- Capture final direction-normalized basis where Grot faced at Frame 5
+			local flatVec = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+			local playerFlatLook = flatVec.Magnitude > 0.01 and flatVec.Unit or Vector3.new(0, 0, -1)
+			local playerBasisCF = CFrame.lookAt(rootPart.Position, rootPart.Position + playerFlatLook, Vector3.yAxis)
+
 			local s1HitboxData = GrotRigFactory.ExtractS1HitboxData()
-			local zoneCFrame = finalFacingCFrame * s1HitboxData.Offset
+			local zoneCFrame = playerBasisCF * s1HitboxData.Offset
 			local hitboxSize = s1HitboxData.Size
 
 			-- Spawn Frame 5 real spiky Skill area model anchored in world for 3.0s
-			local frame5Model, frame5Offsets = GrotRigFactory.SpawnSkillAreaForFrame(5, character)
-			if frame5Model and frame5Offsets then
-				for part, relCF in pairs(frame5Offsets) do
-					if part and part.Parent then
-						part.CFrame = finalFacingCFrame * relCF
-					end
-				end
+			local frame5Model, _ = GrotRigFactory.SpawnSkillAreaForFrame(5, character)
+			if frame5Model then
 				Debris:AddItem(frame5Model, skillData.Linger or 3.0)
 			end
 
